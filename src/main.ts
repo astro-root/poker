@@ -189,7 +189,7 @@ function render(): void {
 
   const felt = node('div', 'felt');
   const opponent = view.hand?.players.find((player) => player.id === aiId);
-  const opponentSeat = renderSeat('AIプレイヤー', opponent, aiId === round?.actorId, false, table.buttonPlayerId === aiId);
+  const opponentSeat = renderSeat('AIプレイヤー', opponent, aiId === round?.actorId, false, table.buttonPlayerId === aiId, Boolean(opponent?.holeCards));
   felt.append(opponentSeat);
 
   const center = node('div', 'table-center');
@@ -254,8 +254,23 @@ function render(): void {
   if (hand.stage === 'complete') {
     const result = hand.result;
     if (result?.type === 'showdown') {
-      const winners = Object.entries(result.settlement.payouts).filter(([, amount]) => amount > 0).map(([id, amount]) => `${id === humanId ? playerName : '相手'} +${formatChips(amount)}`).join('　');
-      actionPanel.append(node('p', 'result-copy', winners || 'ショーダウンが終了しました。'));
+      const winners = Object.entries(result.settlement.payouts).filter(([, amount]) => amount > 0);
+      actionPanel.append(node('p', 'result-copy', winners.map(([id, amount]) => `${id === humanId ? playerName : '相手'} +${formatChips(amount)}`).join('　') || 'ショーダウンが終了しました。'));
+      const revealedHands = node('div', 'revealed-hands');
+      for (const [id, evaluated] of Object.entries(result.settlement.hands)) {
+        const handResult = node('div', 'revealed-hand');
+        handResult.append(node('strong', '', `${id === humanId ? playerName : '相手'} · ${explainHand(evaluated).name}`));
+        const cards = node('div', 'card-row result-cards');
+        const player = view.hand?.players.find((candidate) => candidate.id === id);
+        if (player?.holeCards) for (const card of player.holeCards) cards.append(cardElement(card));
+        handResult.append(cards);
+        revealedHands.append(handResult);
+      }
+      actionPanel.append(revealedHands);
+      result.settlement.pots.forEach((pot, index) => {
+        const potWinners = pot.winnerIds.map((id) => id === humanId ? playerName : '相手').join('・');
+        actionPanel.append(node('p', 'pot-result', `${index === 0 ? 'メインポット' : `サイドポット ${index}`} · ${formatChips(pot.amount)} チップ · ${potWinners}が獲得`));
+      });
     } else if (result?.type === 'uncontested') {
       actionPanel.append(node('p', 'result-copy', `${result.winnerId === humanId ? playerName : '相手'}が全員のフォールドでポット ${formatChips(result.pot)} を獲得しました。`));
     }
@@ -329,7 +344,7 @@ function render(): void {
   app!.replaceChildren(shell);
 }
 
-function renderSeat(name: string, seat: { id: string; stack: number; folded: boolean; holeCards: readonly [Card, Card] | null; streetContribution: number } | undefined, active: boolean, showCards: boolean, isDealer: boolean): HTMLElement {
+function renderSeat(name: string, seat: { id: string; stack: number; folded: boolean; holeCards: readonly [Card, Card] | null; streetContribution: number } | undefined, active: boolean, showCards: boolean, isDealer: boolean, revealOpponentCards = false): HTMLElement {
   const card = node('div', `player-seat${active ? ' active-seat' : ''}${seat?.folded ? ' folded-seat' : ''}${showCards ? ' human-seat' : ''}`);
   const avatar = node('span', 'avatar', showCards ? 'YOU' : 'AI');
   const details = node('div', 'seat-details');
@@ -340,8 +355,9 @@ function renderSeat(name: string, seat: { id: string; stack: number; folded: boo
   if (isDealer) card.append(node('span', 'dealer-button', 'D'));
   const cards = node('div', 'card-row hole-cards');
   const holeCards = seat?.holeCards;
-  cards.append(cardElement(holeCards?.[0] ?? null, !showCards || !holeCards));
-  cards.append(cardElement(holeCards?.[1] ?? null, !showCards || !holeCards));
+  const cardsVisible = showCards || revealOpponentCards;
+  cards.append(cardElement(holeCards?.[0] ?? null, !cardsVisible || !holeCards));
+  cards.append(cardElement(holeCards?.[1] ?? null, !cardsVisible || !holeCards));
   card.append(cards);
   if (seat?.folded) card.append(node('span', 'folded-label', 'フォールド'));
   if (active) card.append(node('span', 'seat-turn-label', 'アクション中'));

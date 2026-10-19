@@ -157,6 +157,7 @@ test('plays a complete heads-up hand across all four betting streets', () => {
   assert.equal(hand.stage, 'complete');
   assert.equal(hand.board.length, 5);
   assert.equal(hand.result?.type, 'showdown');
+  assert.equal(getPublicHandView(hand, 'button').players.find((player) => player.id === 'big-blind')?.holeCards?.length, 2);
   assert.equal(hand.players.reduce((sum, player) => sum + player.stack, 0), 200);
 });
 

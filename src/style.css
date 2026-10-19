@@ -101,6 +101,14 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .wager-control .action-button { grid-column: 1 / -1; }
 .action-hint { margin: 11px 0 0; color: #89938b; font-size: 10px; line-height: 1.6; }
 .result-copy { color: #52665a; font-size: 12px; line-height: 1.7; }
+.revealed-hands { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+.revealed-hand { display: grid; gap: 7px; min-width: 125px; padding: 10px; border: 1px solid #e2e8e1; border-radius: 9px; background: #f8faf7; }
+.revealed-hand strong { color: #355744; font-size: 10px; }
+.result-cards { justify-content: flex-start; min-height: 49px; }
+.result-cards .playing-card { width: 32px; height: 45px; }
+.result-cards .card-rank { font-size: 12px; }
+.result-cards .card-suit { font-size: 14px; }
+.pot-result { margin: 5px 0; color: #748178; font-size: 10px; }
 .glossary { margin-top: 18px; border-top: 1px solid #dedfd7; }
 .glossary summary { width: fit-content; padding: 14px 2px; color: #536c5e; cursor: pointer; font-size: 11px; font-weight: 600; }
 .glossary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; padding-bottom: 10px; }
