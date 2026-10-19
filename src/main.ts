@@ -225,6 +225,14 @@ function render(): void {
   intro.append(node('h1', '', '一手ずつ、覚えていこう。'));
   intro.append(node('p', 'intro-copy', 'ルールベースAIとの練習対戦です。チップはゲーム内の練習用です。'));
   shell.append(intro);
+  const beginnerGuide = node('details', 'beginner-guide');
+  beginnerGuide.append(node('summary', '', 'はじめての方へ：遊び方を見る'));
+  const guideBody = node('div', 'guide-body');
+  guideBody.append(node('p', '', '手札2枚と、テーブル中央に順番に出る共通カード5枚から、いちばん強い5枚の役を作ります。'));
+  guideBody.append(node('p', '', '自分の番では、チェック（追加せず進む）、コール（相手に合わせる）、レイズ（ベットを上げる）、フォールド（そのハンドを降りる）などを選びます。'));
+  guideBody.append(node('p', '', '相手のチップをすべて獲得することが目標です。練習チップに金銭的価値はなく、この画面の対戦状態は端末内だけで管理されます。'));
+  beginnerGuide.append(guideBody);
+  shell.append(beginnerGuide);
 
   const tableCard = node('section', 'game-panel');
   const panelHeader = node('div', 'panel-header');
@@ -366,7 +374,15 @@ function render(): void {
     if (me.stack > 0 && canMoveAllIn) actions.append(createActionButton('オールイン', { type: 'all-in' }, 'allin-action', false));
     actionPanel.append(actions);
     const callInfo = legal.callAmount ? `コールに必要なチップ: ${formatChips(legal.callAmount)}` : '追加ベットがなければチェックできます。';
-    actionPanel.append(node('p', 'action-hint', `${callInfo} · ポット ${formatChips(view.hand?.pot ?? 0)} · 最小レイズ ${formatChips(legal.minRaiseTo)}`));
+    actionPanel.append(node('p', 'action-hint', `${callInfo} · ポット ${formatChips(view.hand?.pot ?? 0)} チップ${legal.canRaise ? ` · 最小${round!.currentBet === 0 ? 'ベット' : 'レイズ'} ${formatChips(legal.minRaiseTo)}` : ''}`));
+    const callRequired = round!.currentBet - me.streetContribution;
+    const guidance = legal.canCheck
+      ? 'チェックはチップを追加せずに順番を進めます。誰かがベットすると、次の番ではコールかフォールドを選びます。'
+      : legal.callAmount < callRequired
+        ? 'コール額が残りチップを超えているため、コールを選ぶとオールインになります。フォールドすると、このハンドから降ります。'
+        : 'コールは現在のベットに必要な分を出します。フォールドすると、このハンドから降り、すでに出したチップは戻りません。';
+    actionPanel.append(node('p', 'action-guidance', guidance));
+    if (legal.canRaise) actionPanel.append(node('p', 'action-guidance', `ベットはまだ誰も賭けていないとき、レイズは相手のベットを上げるときに使います。スライダーの金額は、このラウンドで出す合計額です。`));
   } else {
     actionPanel.append(node('p', 'action-hint', '相手がアクションしています。'));
   }
