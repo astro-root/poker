@@ -59,6 +59,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .community-cards { margin-top: 3px; }
 .seat-turn-label, .folded-label { position: absolute; right: 12px; top: -8px; border-radius: 999px; background: #e8c577; padding: 3px 8px; color: #334332; font-size: 9px; }
 .folded-label { top: auto; right: 12px; bottom: -8px; background: #8b9b90; color: white; }
+.dealer-button { position: absolute; top: -8px; left: 12px; display: grid; width: 19px; height: 19px; place-items: center; border: 1px solid #c9a454; border-radius: 50%; background: #fff9e9; color: #5c4822; font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 700; box-shadow: 0 1px 4px #00170d38; }
 .notice-bar { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 10px 20px; color: #718078; font-size: 11px; }
 .notice-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: #c89c50; }
 
@@ -79,6 +80,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .action-button { min-height: 43px; border: 1px solid transparent; border-radius: 9px; padding: 10px 13px; font-size: 11px; font-weight: 600; transition: transform .12s, background .12s; }
 .action-button:not(:disabled):active { transform: translateY(1px); }
+.action-button:focus-visible, .wager-range:focus-visible, .glossary summary:focus-visible { outline: 3px solid #c89c50; outline-offset: 3px; }
 .primary-action { background: var(--green); color: white; }
 .primary-action:hover:not(:disabled) { background: #0e372d; }
 .secondary-action { border-color: #cddbd0; background: #edf3ee; color: #244c3c; }

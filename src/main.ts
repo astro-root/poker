@@ -159,7 +159,7 @@ function render(): void {
 
   const felt = node('div', 'felt');
   const opponent = view.hand?.players.find((player) => player.id === aiId);
-  const opponentSeat = renderSeat('AIプレイヤー', opponent, aiId === round?.actorId, false);
+  const opponentSeat = renderSeat('AIプレイヤー', opponent, aiId === round?.actorId, false, table.buttonPlayerId === aiId);
   felt.append(opponentSeat);
 
   const center = node('div', 'table-center');
@@ -174,10 +174,12 @@ function render(): void {
   felt.append(center);
 
   const human = view.hand?.players.find((player) => player.id === humanId);
-  felt.append(renderSeat('あなた', human, isHumanTurn, true));
+  felt.append(renderSeat('あなた', human, isHumanTurn, true, table.buttonPlayerId === humanId));
   tableCard.append(felt);
 
   const noticeBar = node('div', 'notice-bar');
+  noticeBar.setAttribute('role', 'status');
+  noticeBar.setAttribute('aria-live', 'polite');
   noticeBar.append(node('span', 'notice-dot'), node('span', '', notice));
   tableCard.append(noticeBar);
   shell.append(tableCard);
@@ -219,7 +221,8 @@ function render(): void {
       actionPanel.append(node('p', 'result-copy', `${result.winnerId === humanId ? 'あなた' : '相手'}が全員のフォールドでポット ${formatChips(result.pot)} を獲得しました。`));
     }
     const canContinue = table.seats.filter((seat) => seat.stack > 0).length >= 2;
-    const nextButton = createActionButton(canContinue ? '次のハンドへ' : '最初から遊ぶ', { type: 'check' }, 'primary-action', false);
+    const nextButton = node('button', 'action-button primary-action', canContinue ? '次のハンドへ' : '最初から遊ぶ');
+    nextButton.type = 'button';
     nextButton.addEventListener('click', () => {
       try {
         if (canContinue) table = startNextHand(table!);
@@ -287,7 +290,7 @@ function render(): void {
   app!.replaceChildren(shell);
 }
 
-function renderSeat(name: string, seat: { id: string; stack: number; folded: boolean; holeCards: readonly [Card, Card] | null; streetContribution: number } | undefined, active: boolean, showCards: boolean): HTMLElement {
+function renderSeat(name: string, seat: { id: string; stack: number; folded: boolean; holeCards: readonly [Card, Card] | null; streetContribution: number } | undefined, active: boolean, showCards: boolean, isDealer: boolean): HTMLElement {
   const card = node('div', `player-seat${active ? ' active-seat' : ''}${seat?.folded ? ' folded-seat' : ''}${showCards ? ' human-seat' : ''}`);
   const avatar = node('span', 'avatar', showCards ? 'YOU' : 'AI');
   const details = node('div', 'seat-details');
@@ -295,6 +298,7 @@ function renderSeat(name: string, seat: { id: string; stack: number; folded: boo
   details.append(node('span', 'seat-stack', `${formatChips(seat?.stack ?? 0)} チップ`));
   if (seat && seat.streetContribution > 0) details.append(node('span', 'seat-bet', `ベット ${formatChips(seat.streetContribution)}`));
   card.append(avatar, details);
+  if (isDealer) card.append(node('span', 'dealer-button', 'D'));
   const cards = node('div', 'card-row hole-cards');
   const holeCards = seat?.holeCards;
   cards.append(cardElement(holeCards?.[0] ?? null, !showCards || !holeCards));
