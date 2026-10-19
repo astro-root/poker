@@ -7,6 +7,7 @@ import { applyBettingAction, createBettingRound, getLegalActions, postBlind, typ
 import { resolveShowdown } from '../src/poker/showdown.ts';
 import { applyHandAction, getHandPot, getPublicHandView, startHand } from '../src/poker/hand.ts';
 import { applyTableAction, createTable, getPublicTableView, startNextHand } from '../src/poker/table.ts';
+import { createGuestCredential, createRoom, finishRoomGame, joinRoom, leaveRoom, listPublicRooms, startRoomGame, verifyGuestSession } from '../src/poker/rooms.ts';
 
 const c = (rank: Card['rank'], suit: Card['suit']): Card => ({ rank, suit });
 
@@ -223,4 +224,53 @@ test('rotates the button clockwise and skips seats with no chips', () => {
   assert.equal(table.handNumber, 2);
   assert.deepEqual(table.seats.map((seat) => seat.id), ['a', 'b', 'c', 'd']);
   assert.equal(getPublicTableView(table).hand?.players.find((player) => player.id === 'd')?.holeCards, null);
+});
+
+test('guest credentials store only a verifier and reject invalid tokens', () => {
+  const { credential, session } = createGuestCredential('  Alice  ');
+  assert.equal(credential.displayName, 'Alice');
+  assert.equal(verifyGuestSession(session, credential.sessionToken), true);
+  assert.equal(verifyGuestSession(session, 'not-the-session-token'), false);
+  assert.equal('sessionToken' in session, false);
+  assert.throws(() => createGuestCredential(''), /Display names/);
+});
+
+test('creates invite rooms without credentials in the URL and enforces seats', () => {
+  const host = createGuestCredential('Host').credential;
+  const guest = createGuestCredential('Guest').credential;
+  const extra = createGuestCredential('Extra').credential;
+  const { room: created, invitationPath } = createRoom(host, {
+    visibility: 'private', maxPlayers: 2, startingStack: 500, smallBlind: 5, bigBlind: 10,
+  });
+  assert.equal(invitationPath, `/rooms/${created.id}`);
+  assert.equal(invitationPath.includes(host.sessionToken), false);
+  const joined = joinRoom(created, guest);
+  assert.equal(joined.joinedAs, 'player');
+  assert.throws(() => joinRoom(joined.room, extra), /full/);
+  const spectator = joinRoom(joined.room, extra, 'spectator');
+  assert.equal(spectator.joinedAs, 'spectator');
+  assert.equal(spectator.room.members.find((member) => member.guestId === extra.guestId)?.seat, null);
+});
+
+test('starts public rooms with host permissions, admits late spectators, and hands off host', () => {
+  const host = createGuestCredential('Host').credential;
+  const guest = createGuestCredential('Guest').credential;
+  const late = createGuestCredential('Late').credential;
+  let room = createRoom(host, {
+    visibility: 'public', maxPlayers: 6, startingStack: 100, smallBlind: 1, bigBlind: 2,
+  }).room;
+  room = joinRoom(room, guest).room;
+  assert.throws(() => startRoomGame(room, guest.guestId, room.version), /Only the room host/);
+  room = startRoomGame(room, host.guestId, room.version);
+  assert.equal(joinRoom(room, late).joinedAs, 'spectator');
+  room = joinRoom(room, late).room;
+  room = leaveRoom(room, host.guestId);
+  assert.equal(room.hostGuestId, guest.guestId);
+  assert.equal(room.members.find((member) => member.guestId === host.guestId)?.connected, false);
+  assert.deepEqual(listPublicRooms([room]).map((summary) => [summary.playerCount, summary.spectatorCount, summary.availableSeats]), [[2, 1, 0]]);
+  room = joinRoom(room, host).room;
+  assert.equal(room.members.find((member) => member.guestId === host.guestId)?.connected, true);
+  room = finishRoomGame(room, room.version);
+  assert.equal(room.status, 'waiting');
+  assert.throws(() => finishRoomGame(room, room.version - 1), /Stale room version/);
 });

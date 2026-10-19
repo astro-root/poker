@@ -5,3 +5,4 @@ export * from './pots.ts';
 export * from './showdown.ts';
 export * from './hand.ts';
 export * from './table.ts';
+export * from './rooms.ts';
