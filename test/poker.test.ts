@@ -8,6 +8,8 @@ import { resolveShowdown } from '../src/poker/showdown.ts';
 import { applyHandAction, getHandPot, getPublicHandView, startHand } from '../src/poker/hand.ts';
 import { applyTableAction, createTable, getPublicTableView, startNextHand } from '../src/poker/table.ts';
 import { createGuestCredential, createRoom, finishRoomGame, joinRoom, leaveRoom, listPublicRooms, startRoomGame, verifyGuestSession } from '../src/poker/rooms.ts';
+import { applyAiTurn, chooseAiAction, estimateAiHandStrength } from '../src/poker/ai.ts';
+import { explainHand, findGlossaryEntry } from '../src/poker/education.ts';
 
 const c = (rank: Card['rank'], suit: Card['suit']): Card => ({ rank, suit });
 
@@ -273,4 +275,46 @@ test('starts public rooms with host permissions, admits late spectators, and han
   room = finishRoomGame(room, room.version);
   assert.equal(room.status, 'waiting');
   assert.throws(() => finishRoomGame(room, room.version - 1), /Stale room version/);
+});
+
+test('AI chooses only legal actions from its hole cards and public state', () => {
+  let round = createBettingRound([player('ai'), player('opponent')], 'ai', 10);
+  const opening = chooseAiAction({
+    playerId: 'ai', holeCards: [c(14, 'clubs'), c(14, 'hearts')], board: [],
+    legalActions: getLegalActions(round), stack: 100, pot: 15, streetContribution: 0, currentBet: 0,
+  });
+  assert.deepEqual(opening, { type: 'bet', to: 10 });
+
+  round = createBettingRound([player('ai'), player('opponent', 100, 100)], 'ai', 10);
+  const facingLargeBet = chooseAiAction({
+    playerId: 'ai', holeCards: [c(2, 'clubs'), c(7, 'diamonds')], board: [],
+    legalActions: getLegalActions(round), stack: 100, pot: 100, streetContribution: 0, currentBet: 100,
+  });
+  assert.equal(facingLargeBet.type, 'fold');
+
+  const checkOnly = chooseAiAction({
+    playerId: 'ai', holeCards: [c(2, 'clubs'), c(7, 'diamonds')], board: [],
+    legalActions: { canFold: true, canCheck: true, callAmount: 0, canRaise: false, minRaiseTo: 10, maxRaiseTo: 100 },
+    stack: 100, pot: 10, streetContribution: 0, currentBet: 0,
+  });
+  assert.deepEqual(checkOnly, { type: 'check' });
+  assert.ok(estimateAiHandStrength([c(14,'clubs'), c(14,'hearts')], []) > estimateAiHandStrength([c(2,'clubs'), c(7,'diamonds')], []));
+});
+
+test('applies an AI decision through the ordinary hand rules', () => {
+  const hand = startHand([{ id: 'ai', stack: 100 }, { id: 'human', stack: 100 }], 0, 5, 10);
+  const next = applyAiTurn(hand, 'ai');
+  assert.notEqual(next, hand);
+  assert.equal(next.players.reduce((sum, p) => sum + p.stack + p.totalContribution, 0), 200);
+  assert.throws(() => applyAiTurn(next, 'ai'), /not the current actor/);
+});
+
+test('explains the current five-card hand and exposes beginner glossary entries', () => {
+  const hand = evaluateHand([c(10,'hearts'),c(11,'hearts'),c(12,'hearts'),c(13,'hearts'),c(14,'hearts'),c(2,'clubs'),c(3,'spades')]);
+  const explanation = explainHand(hand);
+  assert.equal(explanation.name, 'ロイヤルフラッシュ');
+  assert.equal(explanation.cards.length, 5);
+  assert.match(explanation.reason, /最も強い/);
+  assert.equal(findGlossaryEntry('サイドポット')?.term, 'サイドポット');
+  assert.equal(findGlossaryEntry('存在しない用語'), undefined);
 });
