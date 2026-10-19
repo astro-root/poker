@@ -3,7 +3,7 @@ import { applyTableAction, createTable, getPublicTableView, startNextHand, type 
 import { chooseAiAction, type AiStyle } from './poker/ai.ts';
 import { getHandPot } from './poker/hand.ts';
 import { getLegalActions, type BettingAction } from './poker/betting.ts';
-import { evaluateHand, HAND_NAMES } from './poker/evaluator.ts';
+import { evaluateHand, HAND_NAMES, type HandCategory } from './poker/evaluator.ts';
 import { estimateEquity, type EquityEstimate } from './poker/equity.ts';
 import { explainHand, getCallBreakEvenProbability, POKER_GLOSSARY } from './poker/education.ts';
 import { initializeGuestIdentity } from './supabase/client.ts';
@@ -527,7 +527,7 @@ function renderHandsPage(): void {
     const article = node('article', 'hand-rank-card');
     const heading = node('div', 'hand-rank-heading');
     heading.append(node('span', 'hand-rank-number', String(10 - category).padStart(2, '0')));
-    heading.append(node('h2', '', HAND_NAMES[category as keyof typeof HAND_NAMES]));
+    heading.append(node('h2', '', HAND_NAMES[category as HandCategory]));
     const cards = node('div', 'card-row rank-example-cards');
     for (const card of example.cards) cards.append(cardElement(card));
     article.append(heading, node('p', 'hand-rank-description', example.description), cards);
