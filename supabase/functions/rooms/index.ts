@@ -1,6 +1,11 @@
 import { applyTableAction, createTable, startNextHand, type TableState } from '../../../src/poker/table.ts';
 import type { BettingAction } from '../../../src/poker/betting.ts';
 
+declare const Deno: {
+  env: { get(name: string): string | undefined };
+  serve(handler: (request: Request) => Response | Promise<Response>): void;
+};
+
 type Member = Readonly<{ id: string; name: string }>;
 type RoomState = Readonly<{ members: readonly Member[]; notice: string; table: TableState | null }>;
 type RoomRow = Readonly<{ id: string; host_user_id: string; status: 'waiting' | 'playing'; revision: number; state: RoomState }>;
@@ -177,8 +182,8 @@ Deno.serve(async (request: Request) => {
       nextState = { ...row.state, table, notice: 'ホストが対戦を開始しました。' };
       status = 'playing';
     } else if (action === 'action') {
-      if (row.status !== 'playing' || !row.state.table?.hand?.bettingRound) return response({ ok: false, error: '現在は操作できません。' }, 409);
       const table = row.state.table;
+      if (row.status !== 'playing' || !table?.hand?.bettingRound) return response({ ok: false, error: '現在は操作できません。' }, 409);
       if (table.hand.bettingRound.actorId !== userId) return response({ ok: false, error: 'まだあなたの番ではありません。' }, 409);
       const pokerAction = body.pokerAction as BettingAction;
       const nextTable = applyTableAction(table, Number(body.expectedVersion), userId, pokerAction);

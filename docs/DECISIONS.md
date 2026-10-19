@@ -1,0 +1,1 @@
+- 2026-10-19: Supabase Edge Function は Node の型検査対象に含め、使用中の `Deno.env` / `Deno.serve` だけを最小宣言する。現状のハンドラは Node 統合テストから直接実行でき、別の純粋関数層へ分ける必要がないため。
