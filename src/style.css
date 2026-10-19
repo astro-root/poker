@@ -42,6 +42,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .turn-indicator.your-turn { color: var(--green); font-weight: 700; }
 .turn-indicator.your-turn::before { background: #49a478; box-shadow: 0 0 0 3px #49a47822; }
 .felt { display: grid; grid-template-columns: 1fr; justify-items: center; gap: 14px; padding: 26px 20px 22px; background: radial-gradient(ellipse at center, #1d5a46, #144536 73%, #10392e); }
+.opponent-seats { display: flex; width: 100%; flex-wrap: wrap; justify-content: center; gap: 10px; }
 .player-seat { position: relative; display: flex; align-items: center; gap: 11px; width: min(100%, 300px); min-height: 66px; padding: 10px 13px; border: 1px solid #ffffff35; border-radius: 12px; background: #0b3028b0; color: white; }
 .active-seat { border-color: #e2bd72; box-shadow: 0 0 0 2px #e2bd7230; }
 .folded-seat { opacity: .57; }
@@ -140,10 +141,10 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 @media (min-width: 720px) {
   .page-shell { padding-top: 31px; }
   .intro { padding-top: 47px; padding-bottom: 26px; }
-  .felt { min-height: 395px; grid-template-columns: 1fr 1.4fr 1fr; align-items: center; gap: 10px; padding: 32px 28px; }
-  .table-center { grid-column: 2; grid-row: 1; }
-  .player-seat:first-child { grid-column: 1; grid-row: 1; }
-  .player-seat:last-child { grid-column: 3; grid-row: 1; }
+  .felt { min-height: 420px; grid-template-columns: 1fr 1.4fr 1fr; align-items: center; gap: 10px; padding: 32px 28px; }
+  .opponent-seats { grid-column: 1 / -1; grid-row: 1; }
+  .table-center { grid-column: 1 / -1; grid-row: 2; }
+  .player-seat:last-child { grid-column: 1 / -1; grid-row: 3; justify-self: center; }
   .player-seat { width: 100%; max-width: 255px; min-height: 86px; flex-wrap: wrap; }
   .player-seat .hole-cards { width: 100%; margin: 2px 0 0; }
   .card-row { gap: 8px; }

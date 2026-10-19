@@ -229,6 +229,40 @@ test('rotates the button clockwise and skips seats with no chips', () => {
   assert.equal(getPublicTableView(table).hand?.players.find((player) => player.id === 'd')?.holeCards, null);
 });
 
+test('plays a complete hand with three rule-based AI opponents', () => {
+  let table = startNextHand(createTable([
+    { id: 'human', stack: 1_000 },
+    { id: 'ai-1', stack: 1_000 },
+    { id: 'ai-2', stack: 1_000 },
+    { id: 'ai-3', stack: 1_000 },
+  ], 5, 10));
+  let actionCount = 0;
+  while (table.hand?.stage !== 'complete' && actionCount < 150) {
+    const hand = table.hand!;
+    const round = hand.bettingRound!;
+    const actorId = round.actorId!;
+    const player = hand.players.find((candidate) => candidate.id === actorId)!;
+    const legal = getLegalActions(round, actorId);
+    const action = actorId === 'human'
+      ? legal.canCheck ? { type: 'check' as const } : { type: 'call' as const }
+      : chooseAiAction({
+        playerId: actorId,
+        holeCards: player.holeCards,
+        board: hand.board,
+        legalActions: legal,
+        stack: player.stack,
+        pot: getHandPot(hand),
+        streetContribution: player.streetContribution,
+        currentBet: round.currentBet,
+      });
+    table = applyTableAction(table, table.version, actorId, action);
+    actionCount++;
+  }
+  assert.equal(table.hand?.stage, 'complete');
+  assert.ok(actionCount < 150);
+  assert.equal(table.seats.reduce((sum, seat) => sum + seat.stack, 0), 4_000);
+});
+
 test('guest credentials store only a verifier and reject invalid tokens', () => {
   const { credential, session } = createGuestCredential('  Alice  ');
   assert.equal(credential.displayName, 'Alice');

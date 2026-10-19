@@ -8,7 +8,7 @@ import { explainHand, getCallBreakEvenProbability, POKER_GLOSSARY } from './poke
 import './style.css';
 
 const humanId = globalThis.crypto.randomUUID();
-const aiId = 'table-ai';
+const aiIds = ['table-ai-1', 'table-ai-2', 'table-ai-3'] as const;
 const app = document.querySelector<HTMLElement>('#app');
 if (!app) throw new Error('Application root is missing');
 
@@ -42,6 +42,16 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string,
 
 function formatChips(amount: number): string {
   return new Intl.NumberFormat('ja-JP').format(amount);
+}
+
+function isAiPlayer(id: string): boolean {
+  return aiIds.includes(id as (typeof aiIds)[number]);
+}
+
+function playerLabel(id: string): string {
+  if (id === humanId) return playerName;
+  const index = aiIds.indexOf(id as (typeof aiIds)[number]);
+  return index >= 0 ? `AI ${index + 1}` : 'プレイヤー';
 }
 
 function loadPlayerName(): string {
@@ -79,9 +89,9 @@ function archiveCompletedHand(): void {
   if (!table || !hand || hand.stage !== 'complete' || archivedHand === hand || !hand.result) return;
   archivedHand = hand;
   const result = hand.result.type === 'uncontested'
-    ? `${hand.result.winnerId === humanId ? playerName : '相手'}がポット ${formatChips(hand.result.pot)} チップを獲得`
+    ? `${playerLabel(hand.result.winnerId)}がポット ${formatChips(hand.result.pot)} チップを獲得`
     : hand.result.settlement.pots.map((pot, index) => {
-      const winners = pot.winnerIds.map((id) => id === humanId ? playerName : '相手').join('・');
+      const winners = pot.winnerIds.map(playerLabel).join('・');
       return `${index === 0 ? 'メイン' : `サイド${index}`} ${formatChips(pot.amount)}: ${winners}`;
     }).join(' / ');
   const humanFinalStack = hand.players.find((player) => player.id === humanId)?.stack ?? humanStackAtHandStart;
@@ -124,7 +134,7 @@ function startGame(): void {
   aiThinking = false;
   table = createTable([
     { id: humanId, stack: 1_000 },
-    { id: aiId, stack: 1_000 },
+    ...aiIds.map((id) => ({ id, stack: 1_000 })),
   ], 5, 10);
   table = startNextHand(table);
   humanStackAtHandStart = 1_000;
@@ -132,6 +142,7 @@ function startGame(): void {
   handHistory = [];
   notice = 'あなたの番です。チェック、コール、レイズなどを選べます。';
   render();
+  runAiIfNeeded();
 }
 
 function performAction(action: BettingAction): void {
@@ -159,17 +170,18 @@ function actionNotice(name: string, action: BettingAction): string {
 
 function runAiIfNeeded(): void {
   const round = table?.hand?.bettingRound;
-  if (!table?.hand || round?.actorId !== aiId || table.hand.stage === 'complete' || aiThinking) return;
+  if (!table?.hand || !round?.actorId || !isAiPlayer(round.actorId) || table.hand.stage === 'complete' || aiThinking) return;
+  const actorId = round.actorId;
   aiThinking = true;
-  notice = '相手が考えています…';
+  notice = `${playerLabel(actorId)}が考えています…`;
   render();
   aiTimer = window.setTimeout(() => {
-    if (!table?.hand?.bettingRound || table.hand.bettingRound.actorId !== aiId) {
+    if (!table?.hand?.bettingRound || table.hand.bettingRound.actorId !== actorId) {
       aiThinking = false;
       return;
     }
     const hand = table.hand;
-    const player = hand.players.find((candidate) => candidate.id === aiId);
+    const player = hand.players.find((candidate) => candidate.id === actorId);
     if (!player || !hand.bettingRound) {
       aiThinking = false;
       return;
@@ -177,20 +189,20 @@ function runAiIfNeeded(): void {
     try {
       const actionStage = stageLabel(hand.stage);
       const action = chooseAiAction({
-        playerId: aiId,
+        playerId: actorId,
         holeCards: player.holeCards,
         board: hand.board,
-        legalActions: getLegalActions(hand.bettingRound, aiId),
+        legalActions: getLegalActions(hand.bettingRound, actorId),
         stack: player.stack,
         pot: getHandPot(hand),
         streetContribution: player.streetContribution,
         currentBet: hand.bettingRound.currentBet,
       });
-      table = applyTableAction(table, table.version, aiId, action);
-      notice = actionNotice('相手', action);
+      table = applyTableAction(table, table.version, actorId, action);
+      notice = actionNotice(playerLabel(actorId), action);
       handHistory.push(`${actionStage} · ${notice}`);
     } catch (error) {
-      notice = error instanceof Error ? error.message : '相手の操作を反映できませんでした。';
+      notice = error instanceof Error ? error.message : `${playerLabel(actorId)}の操作を反映できませんでした。`;
     }
     aiThinking = false;
     render();
@@ -241,14 +253,14 @@ function render(): void {
   const intro = node('section', 'intro');
   intro.append(node('div', 'eyebrow', 'TEXAS HOLD’EM / TABLE 01'));
   intro.append(node('h1', '', '一手ずつ、覚えていこう。'));
-  intro.append(node('p', 'intro-copy', 'ルールベースAIとの練習対戦です。チップはゲーム内の練習用です。'));
+  intro.append(node('p', 'intro-copy', '3人のルールベースAIとの練習対戦です。チップはゲーム内の練習用です。'));
   shell.append(intro);
   const beginnerGuide = node('details', 'beginner-guide');
   beginnerGuide.append(node('summary', '', 'はじめての方へ：遊び方を見る'));
   const guideBody = node('div', 'guide-body');
   guideBody.append(node('p', '', '手札2枚と、テーブル中央に順番に出る共通カード5枚から、いちばん強い5枚の役を作ります。'));
   guideBody.append(node('p', '', '自分の番では、チェック（追加せず進む）、コール（相手に合わせる）、レイズ（ベットを上げる）、フォールド（そのハンドを降りる）などを選びます。'));
-  guideBody.append(node('p', '', '相手のチップをすべて獲得することが目標です。練習チップに金銭的価値はなく、この画面の対戦状態は端末内だけで管理されます。'));
+  guideBody.append(node('p', '', 'ほかのプレイヤーより多くのチップを獲得することを目指します。練習チップに金銭的価値はなく、この画面の対戦状態は端末内だけで管理されます。'));
   beginnerGuide.append(guideBody);
   shell.append(beginnerGuide);
 
@@ -259,9 +271,11 @@ function render(): void {
   tableCard.append(panelHeader);
 
   const felt = node('div', 'felt');
-  const opponent = view.hand?.players.find((player) => player.id === aiId);
-  const opponentSeat = renderSeat('AIプレイヤー', opponent, aiId === round?.actorId, false, table.buttonPlayerId === aiId, Boolean(opponent?.holeCards));
-  felt.append(opponentSeat);
+  const opponents = node('div', 'opponent-seats');
+  for (const opponent of (view.hand?.players ?? []).filter((player) => player.id !== humanId)) {
+    opponents.append(renderSeat(playerLabel(opponent.id), opponent, opponent.id === round?.actorId, false, table.buttonPlayerId === opponent.id, Boolean(opponent.holeCards)));
+  }
+  felt.append(opponents);
 
   const center = node('div', 'table-center');
   center.append(node('div', 'pot-label', 'POT'));
@@ -326,11 +340,11 @@ function render(): void {
     const result = hand.result;
     if (result?.type === 'showdown') {
       const winners = Object.entries(result.settlement.payouts).filter(([, amount]) => amount > 0);
-      actionPanel.append(node('p', 'result-copy', winners.map(([id, amount]) => `${id === humanId ? playerName : '相手'} +${formatChips(amount)}`).join('　') || 'ショーダウンが終了しました。'));
+      actionPanel.append(node('p', 'result-copy', winners.map(([id, amount]) => `${playerLabel(id)} +${formatChips(amount)}`).join('　') || 'ショーダウンが終了しました。'));
       const revealedHands = node('div', 'revealed-hands');
       for (const [id, evaluated] of Object.entries(result.settlement.hands)) {
         const handResult = node('div', 'revealed-hand');
-        handResult.append(node('strong', '', `${id === humanId ? playerName : '相手'} · ${explainHand(evaluated).name}`));
+        handResult.append(node('strong', '', `${playerLabel(id)} · ${explainHand(evaluated).name}`));
         const cards = node('div', 'card-row result-cards');
         const player = view.hand?.players.find((candidate) => candidate.id === id);
         if (player?.holeCards) for (const card of player.holeCards) cards.append(cardElement(card));
@@ -339,13 +353,14 @@ function render(): void {
       }
       actionPanel.append(revealedHands);
       result.settlement.pots.forEach((pot, index) => {
-        const potWinners = pot.winnerIds.map((id) => id === humanId ? playerName : '相手').join('・');
+        const potWinners = pot.winnerIds.map(playerLabel).join('・');
         actionPanel.append(node('p', 'pot-result', `${index === 0 ? 'メインポット' : `サイドポット ${index}`} · ${formatChips(pot.amount)} チップ · ${potWinners}が獲得`));
       });
     } else if (result?.type === 'uncontested') {
-      actionPanel.append(node('p', 'result-copy', `${result.winnerId === humanId ? playerName : '相手'}が全員のフォールドでポット ${formatChips(result.pot)} を獲得しました。`));
+      actionPanel.append(node('p', 'result-copy', `${playerLabel(result.winnerId)}が全員のフォールドでポット ${formatChips(result.pot)} を獲得しました。`));
     }
-    const canContinue = table.seats.filter((seat) => seat.stack > 0).length >= 2;
+    const canContinue = (table.seats.find((seat) => seat.id === humanId)?.stack ?? 0) > 0
+      && table.seats.filter((seat) => seat.stack > 0).length >= 2;
     const nextButton = node('button', 'action-button primary-action', canContinue ? '次のハンドへ' : '最初から遊ぶ');
     nextButton.type = 'button';
     nextButton.addEventListener('click', () => {
