@@ -1,6 +1,6 @@
 import type { Card } from './poker/cards.ts';
 import { applyTableAction, createTable, getPublicTableView, startNextHand, type TableState } from './poker/table.ts';
-import { chooseAiAction } from './poker/ai.ts';
+import { chooseAiAction, type AiStyle } from './poker/ai.ts';
 import { getHandPot } from './poker/hand.ts';
 import { getLegalActions, type BettingAction } from './poker/betting.ts';
 import { evaluateHand } from './poker/evaluator.ts';
@@ -48,10 +48,15 @@ function isAiPlayer(id: string): boolean {
   return aiIds.includes(id as (typeof aiIds)[number]);
 }
 
+function aiStyle(id: string): AiStyle {
+  const index = aiIds.indexOf(id as (typeof aiIds)[number]);
+  return index === 0 ? 'aggressive' : index === 2 ? 'cautious' : 'balanced';
+}
+
 function playerLabel(id: string): string {
   if (id === humanId) return playerName;
   const index = aiIds.indexOf(id as (typeof aiIds)[number]);
-  return index >= 0 ? `AI ${index + 1}` : 'プレイヤー';
+  return index >= 0 ? `AI ${index + 1} · ${['攻め', '標準', '堅実'][index]}` : 'プレイヤー';
 }
 
 function loadPlayerName(): string {
@@ -197,6 +202,7 @@ function runAiIfNeeded(): void {
         pot: getHandPot(hand),
         streetContribution: player.streetContribution,
         currentBet: hand.bettingRound.currentBet,
+        style: aiStyle(actorId),
       });
       table = applyTableAction(table, table.version, actorId, action);
       notice = actionNotice(playerLabel(actorId), action);
@@ -253,7 +259,7 @@ function render(): void {
   const intro = node('section', 'intro');
   intro.append(node('div', 'eyebrow', 'TEXAS HOLD’EM / TABLE 01'));
   intro.append(node('h1', '', '一手ずつ、覚えていこう。'));
-  intro.append(node('p', 'intro-copy', '3人のルールベースAIとの練習対戦です。チップはゲーム内の練習用です。'));
+  intro.append(node('p', 'intro-copy', '攻め・標準・堅実の3人のルールベースAIとの練習対戦です。チップはゲーム内の練習用です。'));
   shell.append(intro);
   const beginnerGuide = node('details', 'beginner-guide');
   beginnerGuide.append(node('summary', '', 'はじめての方へ：遊び方を見る'));

@@ -3,6 +3,8 @@ import { getLegalActions, type BettingAction, type LegalActions } from './bettin
 import { evaluateHand } from './evaluator.ts';
 import { applyHandAction, getHandPot, type PokerHand } from './hand.ts';
 
+export type AiStyle = 'aggressive' | 'balanced' | 'cautious';
+
 export type AiDecisionContext = Readonly<{
   playerId: string;
   holeCards: readonly [Card, Card];
@@ -12,7 +14,14 @@ export type AiDecisionContext = Readonly<{
   pot: number;
   streetContribution: number;
   currentBet: number;
+  style?: AiStyle;
 }>;
+
+const AI_STYLES: Record<AiStyle, Readonly<{ openRaiseAt: number; raiseAt: number; callFactor: number; betPotFraction: number }>> = {
+  aggressive: { openRaiseAt: 0.58, raiseAt: 0.74, callFactor: 0.58, betPotFraction: 0.7 },
+  balanced: { openRaiseAt: 0.66, raiseAt: 0.84, callFactor: 0.78, betPotFraction: 0.4 },
+  cautious: { openRaiseAt: 0.76, raiseAt: 0.92, callFactor: 1, betPotFraction: 0.3 },
+};
 
 const CATEGORY_STRENGTH = [0.16, 0.36, 0.56, 0.69, 0.79, 0.87, 0.94, 0.97, 0.99, 1] as const;
 
@@ -61,11 +70,11 @@ export function estimateAiHandStrength(holeCards: readonly [Card, Card], board: 
   return board.length === 0 ? preflopStrength(holeCards) : postflopStrength([...holeCards, ...board]);
 }
 
-function chooseAggression(context: AiDecisionContext, strength: number): BettingAction {
+function chooseAggression(context: AiDecisionContext, strength: number, betPotFraction: number): BettingAction {
   const { legalActions: legal } = context;
   if (!legal.canRaise) return legal.canCheck ? { type: 'check' } : { type: 'call' };
   if (legal.maxRaiseTo < legal.minRaiseTo) return { type: 'all-in' };
-  const target = Math.min(legal.maxRaiseTo, Math.max(legal.minRaiseTo, context.currentBet + Math.max(1, Math.floor(context.pot * (strength > 0.92 ? 0.75 : 0.4)))));
+  const target = Math.min(legal.maxRaiseTo, Math.max(legal.minRaiseTo, context.currentBet + Math.max(1, Math.floor(context.pot * betPotFraction))));
   if (context.currentBet === 0) return { type: 'bet', to: target };
   return { type: 'raise', to: target };
 }
@@ -83,16 +92,19 @@ export function chooseAiAction(context: AiDecisionContext): BettingAction {
   }
   const strength = estimateAiHandStrength(context.holeCards, context.board);
   const { legalActions: legal } = context;
+  const styleName = context.style ?? 'balanced';
+  if (!Object.hasOwn(AI_STYLES, styleName)) throw new RangeError('Unknown AI style');
+  const style = AI_STYLES[styleName];
   if (legal.callAmount === 0) {
-    if (legal.canRaise && strength >= 0.66) return chooseAggression(context, strength);
+    if (legal.canRaise && strength >= style.openRaiseAt) return chooseAggression(context, strength, style.betPotFraction);
     if (legal.canCheck) return { type: 'check' };
     throw new Error('AI was given no legal check or betting action');
   }
 
   const potOdds = legal.callAmount / Math.max(1, context.pot + legal.callAmount);
   const pressure = legal.callAmount > context.stack * 0.3 ? 0.08 : 0;
-  if (strength < potOdds * 0.78 + pressure) return { type: 'fold' };
-  if (strength >= 0.84 && legal.canRaise) return chooseAggression(context, strength);
+  if (strength < potOdds * style.callFactor + pressure) return { type: 'fold' };
+  if (strength >= style.raiseAt && legal.canRaise) return chooseAggression(context, strength, style.betPotFraction);
   return { type: 'call' };
 }
 

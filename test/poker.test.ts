@@ -336,6 +336,24 @@ test('AI chooses only legal actions from its hole cards and public state', () =>
   assert.ok(estimateAiHandStrength([c(14,'clubs'), c(14,'hearts')], []) > estimateAiHandStrength([c(2,'clubs'), c(7,'diamonds')], []));
 });
 
+test('AI styles change aggression while preserving legal actions', () => {
+  const round = createBettingRound([player('ai'), player('opponent')], 'ai', 10);
+  const base = {
+    playerId: 'ai',
+    holeCards: [c(10, 'hearts'), c(9, 'hearts')] as const,
+    board: [],
+    legalActions: getLegalActions(round),
+    stack: 100,
+    pot: 15,
+    streetContribution: 0,
+    currentBet: 0,
+  };
+  assert.deepEqual(chooseAiAction({ ...base, style: 'aggressive' }), { type: 'bet', to: 10 });
+  assert.deepEqual(chooseAiAction({ ...base, style: 'balanced' }), { type: 'check' });
+  assert.deepEqual(chooseAiAction({ ...base, style: 'cautious' }), { type: 'check' });
+  assert.throws(() => chooseAiAction({ ...base, style: 'random' as 'balanced' }), /Unknown AI style/);
+});
+
 test('applies an AI decision through the ordinary hand rules', () => {
   const hand = startHand([{ id: 'ai', stack: 100 }, { id: 'human', stack: 100 }], 0, 5, 10);
   const next = applyAiTurn(hand, 'ai');
