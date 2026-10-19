@@ -300,3 +300,107 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* Landing, reference pages, and route navigation */
+.site-topbar { justify-content: space-between; }
+.site-topbar .brand { flex: 0 0 auto; }
+.page-nav { display: flex; align-items: center; gap: 4px; }
+.page-nav-link { border-radius: 6px; padding: 7px 9px; color: #536456; font-size: 10px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.page-nav-link:hover, .page-nav-link.active-page-link { background: #e6eadd; color: #285b39; }
+.content-shell { max-width: 1050px; }
+.landing-shell { max-width: 1160px; }
+.landing-hero { display: grid; min-height: 350px; grid-template-columns: 1fr .9fr; align-items: center; gap: clamp(24px, 5vw, 74px); padding: 32px 0 42px; }
+.landing-copy { max-width: 510px; }
+.landing-copy .eyebrow { color: #7c704f; }
+.landing-copy h1 { margin: 13px 0 12px; color: #1f3929; font-size: clamp(38px, 6vw, 64px); letter-spacing: -.065em; line-height: 1.08; white-space: pre-line; }
+.landing-lead { max-width: 430px; margin: 0; color: #637166; font-size: 14px; line-height: 1.8; }
+.landing-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 22px; }
+.landing-cta { display: inline-flex; min-height: 45px; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 7px; padding: 9px 15px; font-size: 11px; font-weight: 800; text-decoration: none; }
+.landing-cta-primary { background: #216843; color: #fffdf3; }
+.landing-cta-secondary { border-color: #b9c7b5; background: #f8f8f0; color: #315b3c; }
+.landing-note { margin: 13px 0 0; color: #8a9285; font-size: 9px; }
+.landing-stage { position: relative; display: grid; min-height: 255px; place-items: center; overflow: hidden; border: 9px solid #60482b; border-radius: 50%; background: radial-gradient(ellipse at 48% 43%, #247a4f, #105238 70%); box-shadow: 0 0 0 2px #d0b76c, 0 10px 0 #403323, 0 22px 30px #32402a25; }
+.landing-stage::before { position: absolute; inset: 15px; border: 1px solid #e4d18d55; border-radius: 50%; content: ''; }
+.landing-stage-label { position: absolute; top: 18%; color: #e2cf91; font-size: 8px; font-weight: 800; letter-spacing: .2em; }
+.landing-cards { z-index: 1; display: flex; align-items: center; justify-content: center; margin-top: 10px; }
+.landing-cards .playing-card { width: 58px; height: 80px; margin-left: -10px; border-radius: 7px; box-shadow: 0 8px 16px #00170d55; }
+.landing-cards .playing-card:first-child { transform: rotate(-12deg) translateY(4px); }
+.landing-cards .playing-card:nth-child(2) { z-index: 1; transform: rotate(1deg) translateY(-6px); }
+.landing-cards .playing-card:last-child { transform: rotate(12deg) translateY(4px); }
+.landing-cards .card-rank { font-size: 20px; }
+.landing-cards .card-suit { font-size: 21px; }
+.landing-chip-stack { position: absolute; right: 24%; bottom: 22%; display: flex; flex-direction: column-reverse; }
+.landing-chip-stack i { width: 25px; height: 7px; margin-top: -2px; border: 2px dashed #f4e4b2; border-radius: 50%; background: #b74335; box-shadow: 0 2px 0 #752e28; }
+.landing-chip-stack i:nth-child(2) { background: #e4c35e; }
+.landing-chip-stack i:nth-child(3) { background: #e9e2ce; }
+.landing-stage-pot { position: absolute; bottom: 16%; left: 23%; color: #f2e5b8; font-size: 8px; font-weight: 800; letter-spacing: .1em; }
+.landing-paths { border-top: 1px solid #d3d8ce; padding: 20px 0 26px; }
+.landing-paths h2, .landing-learning h2 { margin: 0 0 12px; color: #334a37; font-size: 16px; }
+.landing-path-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.path-card { display: grid; min-height: 140px; gap: 6px; border: 1px solid #d4dbd0; border-radius: 9px; background: #f8f8f2; padding: 16px; text-decoration: none; transition: transform .15s, box-shadow .15s; }
+.path-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px #293b2814; }
+.path-number { color: #9b8650; font-size: 8px; font-weight: 800; letter-spacing: .1em; }
+.path-card strong { color: #2c4c35; font-size: 15px; }
+.path-copy { color: #6b786b; font-size: 10px; line-height: 1.5; }
+.path-link { align-self: end; color: #3c7046; font-size: 10px; font-weight: 800; }
+.landing-learning { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid #d3d8ce; padding: 18px 0; }
+.landing-learning .eyebrow { display: block; margin-bottom: 5px; }
+.landing-learning h2 { margin-bottom: 0; font-size: 13px; }
+.learning-links { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.learning-links a, .game-reference-links a { color: #3b6944; font-size: 9px; font-weight: 750; text-decoration: none; }
+.learning-links a:hover, .game-reference-links a:hover { text-decoration: underline; }
+
+.content-intro { padding: 28px 0 18px; }
+.content-intro .eyebrow { color: #8b7a4c; }
+.content-intro h1 { margin: 7px 0; color: #263e2d; font-size: clamp(28px, 4vw, 38px); letter-spacing: -.045em; }
+.content-intro p { max-width: 700px; margin: 0; color: #68766a; font-size: 11px; line-height: 1.7; }
+.term-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.term-card { position: relative; min-height: 118px; border: 1px solid #d8ddd3; border-radius: 8px; background: #f8f8f2; padding: 14px 15px 12px 43px; }
+.term-index { position: absolute; top: 15px; left: 14px; color: #a18a50; font-size: 8px; font-weight: 850; letter-spacing: .08em; }
+.term-card h2 { margin: 0 0 5px; color: #31553a; font-size: 13px; }
+.term-card p { margin: 0; color: #687569; font-size: 9px; line-height: 1.55; }
+.term-card .term-example { margin-top: 5px; color: #8a7550; }
+.hand-rank-list { display: grid; gap: 7px; }
+.hand-rank-card { display: grid; min-height: 82px; grid-template-columns: minmax(130px, .65fr) minmax(0, 1.3fr) auto; align-items: center; gap: 12px; border: 1px solid #d8ddd3; border-radius: 8px; background: #f8f8f2; padding: 8px 12px; }
+.hand-rank-heading { display: flex; align-items: center; gap: 10px; }
+.hand-rank-number { display: grid; width: 25px; height: 25px; flex: 0 0 25px; place-items: center; border-radius: 50%; background: #e9e4d2; color: #8b7544; font-size: 8px; font-weight: 850; }
+.hand-rank-heading h2 { margin: 0; color: #31533a; font-size: 12px; }
+.hand-rank-description { margin: 0; color: #687569; font-size: 9px; line-height: 1.5; }
+.rank-example-cards { justify-content: flex-end; gap: 3px; }
+.rank-example-cards .playing-card { width: 29px; height: 40px; border-radius: 4px; }
+.rank-example-cards .card-rank { font-size: 10px; }
+.rank-example-cards .card-suit { font-size: 11px; }
+.hand-rules-note { margin-top: 12px; border-left: 3px solid #b99b51; background: #f2f0e6; padding: 12px 14px; }
+.hand-rules-note strong { color: #405c43; font-size: 10px; }
+.hand-rules-note p { margin: 4px 0 0; color: #69766b; font-size: 9px; line-height: 1.6; }
+.content-bottom-nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; border-top: 1px solid #d3d8ce; padding-top: 13px; }
+.content-bottom-nav .page-nav-link { border: 1px solid #d3dacf; background: #f8f8f2; }
+.game-reference-links { display: flex; justify-content: center; gap: 16px; margin-top: 12px; }
+
+@media (max-width: 760px) {
+  .site-topbar { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .site-topbar .page-nav { width: 100%; justify-content: space-between; overflow-x: auto; }
+  .page-nav-link { padding: 6px; font-size: 9px; }
+  .landing-hero { min-height: auto; grid-template-columns: 1fr; gap: 22px; padding: 25px 0 28px; }
+  .landing-copy h1 { font-size: clamp(36px, 10vw, 54px); }
+  .landing-lead { font-size: 12px; }
+  .landing-stage { min-height: 205px; }
+  .landing-path-grid { gap: 7px; }
+  .path-card { min-height: 132px; padding: 12px; }
+  .landing-learning { align-items: flex-start; flex-direction: column; gap: 9px; }
+  .term-list { grid-template-columns: 1fr; }
+  .term-card { min-height: 0; }
+  .hand-rank-card { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; }
+  .hand-rank-heading { grid-column: 1; }
+  .hand-rank-description { grid-column: 1 / -1; grid-row: 2; }
+  .rank-example-cards { grid-column: 2; grid-row: 1; }
+  .rank-example-cards .playing-card { width: 25px; height: 35px; }
+}
+
+@media (max-width: 390px) {
+  .landing-path-grid { grid-template-columns: 1fr; }
+  .path-card { min-height: 110px; }
+  .rank-example-cards { gap: 2px; }
+  .rank-example-cards .playing-card { width: 22px; height: 32px; }
+  .hand-rank-heading h2 { font-size: 10px; }
+}

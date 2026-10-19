@@ -3,7 +3,7 @@ import { applyTableAction, createTable, getPublicTableView, startNextHand, type 
 import { chooseAiAction, type AiStyle } from './poker/ai.ts';
 import { getHandPot } from './poker/hand.ts';
 import { getLegalActions, type BettingAction } from './poker/betting.ts';
-import { evaluateHand } from './poker/evaluator.ts';
+import { evaluateHand, HAND_NAMES } from './poker/evaluator.ts';
 import { estimateEquity, type EquityEstimate } from './poker/equity.ts';
 import { explainHand, getCallBreakEvenProbability, POKER_GLOSSARY } from './poker/education.ts';
 import { initializeGuestIdentity } from './supabase/client.ts';
@@ -17,6 +17,12 @@ const aiIds = Array.from({ length: 9 }, (_, index) => `table-ai-${index + 1}`);
 const opponentCountOptions = [1, 3, 5] as const;
 const app = document.querySelector<HTMLElement>('#app');
 if (!app) throw new Error('Application root is missing');
+type SitePage = 'home' | 'ai' | 'online' | 'terms' | 'hands';
+const routePath = window.location.pathname.replace(/\/+$/u, '') || '/';
+const sitePage: SitePage = routePath === '/ai' ? 'ai'
+  : routePath === '/online' ? 'online'
+    : routePath === '/terms' ? 'terms'
+      : routePath === '/hands' ? 'hands' : 'home';
 
 const playerNameKey = 'poker-practice-player-name';
 const handArchiveKey = 'poker-practice-hand-archive';
@@ -390,12 +396,158 @@ function createActionButton(label: string, action: BettingAction, style: string,
   return button;
 }
 
+function pageLink(label: string, href: string, active = false): HTMLAnchorElement {
+  const link = node('a', `page-nav-link${active ? ' active-page-link' : ''}`, label) as HTMLAnchorElement;
+  link.href = href;
+  if (active) link.setAttribute('aria-current', 'page');
+  return link;
+}
+
+function staticPageHeader(): HTMLElement {
+  const header = node('header', 'topbar site-topbar');
+  const brand = pageLink('POKER TABLE', '/', false);
+  brand.classList.add('brand');
+  const nav = node('nav', 'page-nav');
+  nav.setAttribute('aria-label', 'メインナビゲーション');
+  nav.append(
+    pageLink('トップ', '/', sitePage === 'home'),
+    pageLink('AI対戦', '/ai', sitePage === 'ai'),
+    pageLink('オンライン', '/online', sitePage === 'online'),
+    pageLink('用語', '/terms', sitePage === 'terms'),
+    pageLink('役一覧', '/hands', sitePage === 'hands'),
+  );
+  header.append(brand, nav);
+  return header;
+}
+
+function renderHomePage(): void {
+  document.title = 'POKER TABLE — テキサスホールデム';
+  const shell = node('main', 'page-shell landing-shell');
+  shell.append(staticPageHeader());
+
+  const hero = node('section', 'landing-hero');
+  const copy = node('div', 'landing-copy');
+  copy.append(node('span', 'eyebrow', 'TEXAS HOLD’EM · PLAY FOR FREE'));
+  copy.append(node('h1', '', '次の一手を、\nテーブルの上で。'));
+  copy.append(node('p', 'landing-lead', 'ルールを学びながら、AIとも友だちとも楽しめるテキサスホールデム。登録なしで始められます。'));
+  const actions = node('div', 'landing-actions');
+  actions.append(pageLink('AIと練習する', '/ai', false), pageLink('友だちと対戦する', '/online', false));
+  actions.children[0]?.classList.add('landing-cta', 'landing-cta-primary');
+  actions.children[1]?.classList.add('landing-cta', 'landing-cta-secondary');
+  copy.append(actions);
+  const trust = node('p', 'landing-note', '無料 · ゲーム内チップのみ · アカウント登録不要');
+  copy.append(trust);
+
+  const stage = node('div', 'landing-stage');
+  stage.setAttribute('aria-hidden', 'true');
+  const stageLabel = node('span', 'landing-stage-label', 'TABLE 01 · HOLD’EM');
+  const artCards = node('div', 'landing-cards');
+  for (const card of [
+    { rank: 14, suit: 'spades' }, { rank: 14, suit: 'hearts' }, { rank: 13, suit: 'spades' },
+  ] as const) artCards.append(cardElement(card));
+  const chips = node('div', 'landing-chip-stack');
+  chips.append(node('i'), node('i'), node('i'));
+  stage.append(stageLabel, artCards, chips, node('span', 'landing-stage-pot', 'POT · 1,250'));
+  hero.append(copy, stage);
+  shell.append(hero);
+
+  const paths = node('section', 'landing-paths');
+  paths.append(node('h2', '', '遊び方を選ぶ'));
+  const pathGrid = node('div', 'landing-path-grid');
+  const pathCards = [
+    { href: '/ai', number: '01', title: 'AIと練習', body: '自分のペースでハンドを重ねて、判断を身につける。', link: '練習を始める →' },
+    { href: '/online', number: '02', title: '友だちと対戦', body: '招待リンクを共有して、すぐにプライベート卓を作る。', link: 'オンラインへ →' },
+  ];
+  for (const item of pathCards) {
+    const card = pageLink('', item.href);
+    card.classList.add('path-card');
+    card.append(node('span', 'path-number', item.number), node('strong', '', item.title), node('span', 'path-copy', item.body), node('span', 'path-link', item.link));
+    pathGrid.append(card);
+  }
+  paths.append(pathGrid);
+  shell.append(paths);
+
+  const learning = node('section', 'landing-learning');
+  learning.append(node('span', 'eyebrow', 'LEARN THE GAME'), node('h2', '', '遊びながら、少しずつ覚える。'));
+  const learningLinks = node('div', 'learning-links');
+  learningLinks.append(pageLink('ポーカー用語を見る →', '/terms'), pageLink('役の強さを確認する →', '/hands'));
+  learning.append(learningLinks);
+  shell.append(learning);
+  shell.append(node('footer', 'footer-note', 'POKER TABLE · すべてのチップはゲーム内専用です。現金や賞金はありません。'));
+  app!.replaceChildren(shell);
+}
+
+function renderTermsPage(): void {
+  document.title = 'ポーカー用語集 — POKER TABLE';
+  const shell = node('main', 'page-shell content-shell');
+  shell.append(staticPageHeader());
+  const intro = node('section', 'content-intro');
+  intro.append(node('span', 'eyebrow', 'POKER GLOSSARY'), node('h1', '', 'ポーカー用語集'), node('p', '', 'テキサスホールデムでよく使う言葉を、短い説明と例でまとめました。'));
+  shell.append(intro);
+  const list = node('div', 'term-list');
+  for (const [index, entry] of POKER_GLOSSARY.entries()) {
+    const article = node('article', 'term-card');
+    article.append(node('span', 'term-index', String(index + 1).padStart(2, '0')), node('h2', '', entry.term));
+    article.append(node('p', '', entry.explanation), node('p', 'term-example', entry.example));
+    list.append(article);
+  }
+  shell.append(list);
+  const bottom = node('nav', 'content-bottom-nav');
+  bottom.setAttribute('aria-label', '次のページ');
+  bottom.append(pageLink('トップへ戻る', '/'), pageLink('役一覧を見る →', '/hands'), pageLink('AIと練習する →', '/ai'));
+  shell.append(bottom, node('footer', 'footer-note', 'POKER TABLE · テキサスホールデム'));
+  app!.replaceChildren(shell);
+}
+
+function renderHandsPage(): void {
+  document.title = 'ポーカーの役一覧 — POKER TABLE';
+  const shell = node('main', 'page-shell content-shell');
+  shell.append(staticPageHeader());
+  const intro = node('section', 'content-intro');
+  intro.append(node('span', 'eyebrow', 'HAND RANKINGS'), node('h1', '', '役の強さ一覧'), node('p', '', 'テキサスホールデムでは、手札2枚と共通カードから最も強い5枚を選びます。上から順に強い役です。'));
+  shell.append(intro);
+
+  const sample = (rank: number, suit: Card['suit']): Card => ({ rank: rank as Card['rank'], suit });
+  const examples: Readonly<Record<number, Readonly<{ description: string; cards: readonly Card[] }>>> = {
+    9: { description: '同じスートの10・J・Q・K・A。作れる中で最も強いストレートフラッシュです。', cards: [sample(10, 'spades'), sample(11, 'spades'), sample(12, 'spades'), sample(13, 'spades'), sample(14, 'spades')] },
+    8: { description: '同じスートで数字が5つ連続した役です。A-2-3-4-5が最も低い形です。', cards: [sample(5, 'clubs'), sample(6, 'clubs'), sample(7, 'clubs'), sample(8, 'clubs'), sample(9, 'clubs')] },
+    7: { description: '同じ数字が4枚。残りの1枚が異なる場合は、そのカードで勝敗を比べます。', cards: [sample(13, 'clubs'), sample(13, 'diamonds'), sample(13, 'hearts'), sample(13, 'spades'), sample(2, 'clubs')] },
+    6: { description: '同じ数字3枚と、別の同じ数字2枚の組み合わせです。', cards: [sample(12, 'clubs'), sample(12, 'diamonds'), sample(12, 'hearts'), sample(8, 'spades'), sample(8, 'hearts')] },
+    5: { description: '5枚すべてが同じスート。数字の高いカードから比べます。', cards: [sample(14, 'hearts'), sample(11, 'hearts'), sample(8, 'hearts'), sample(4, 'hearts'), sample(2, 'hearts')] },
+    4: { description: 'スートに関係なく、数字が5つ連続した役です。Aは最小の1としても使えます。', cards: [sample(5, 'clubs'), sample(6, 'diamonds'), sample(7, 'hearts'), sample(8, 'spades'), sample(9, 'clubs')] },
+    3: { description: '同じ数字が3枚。残り2枚の高さを順に比べます。', cards: [sample(7, 'clubs'), sample(7, 'diamonds'), sample(7, 'hearts'), sample(14, 'clubs'), sample(13, 'diamonds')] },
+    2: { description: '異なる数字のペアが2組。高いペア、低いペア、最後の1枚の順で比べます。', cards: [sample(12, 'clubs'), sample(12, 'diamonds'), sample(4, 'hearts'), sample(4, 'spades'), sample(14, 'clubs')] },
+    1: { description: '同じ数字が2枚。ペアが同じなら、残りのカードを高い順に比べます。', cards: [sample(8, 'clubs'), sample(8, 'diamonds'), sample(14, 'hearts'), sample(13, 'spades'), sample(3, 'clubs')] },
+    0: { description: 'どの役もできていない状態です。一番高いカードから順に比べます。', cards: [sample(14, 'clubs'), sample(11, 'diamonds'), sample(9, 'hearts'), sample(6, 'spades'), sample(3, 'clubs')] },
+  };
+
+  const list = node('div', 'hand-rank-list');
+  for (let category = 9; category >= 0; category--) {
+    const example = examples[category]!;
+    const article = node('article', 'hand-rank-card');
+    const heading = node('div', 'hand-rank-heading');
+    heading.append(node('span', 'hand-rank-number', String(10 - category).padStart(2, '0')));
+    heading.append(node('h2', '', HAND_NAMES[category as keyof typeof HAND_NAMES]));
+    const cards = node('div', 'card-row rank-example-cards');
+    for (const card of example.cards) cards.append(cardElement(card));
+    article.append(heading, node('p', 'hand-rank-description', example.description), cards);
+    list.append(article);
+  }
+  shell.append(list);
+  const note = node('aside', 'hand-rules-note');
+  note.append(node('strong', '', '覚えておきたいこと'), node('p', '', '役の強さが同じならキッカーを比べます。スートに強弱はありません。7枚すべてではなく、最も強い5枚で役を判定します。'));
+  shell.append(note);
+  const bottom = node('nav', 'content-bottom-nav');
+  bottom.setAttribute('aria-label', '次のページ');
+  bottom.append(pageLink('トップへ戻る', '/'), pageLink('用語集を見る →', '/terms'), pageLink('AIと練習する →', '/ai'));
+  shell.append(bottom, node('footer', 'footer-note', 'POKER TABLE · テキサスホールデム'));
+  app!.replaceChildren(shell);
+}
+
 function renderOnlineLobby(): void {
+  document.title = '友だちとオンライン対戦 — POKER TABLE';
   const shell = node('main', 'page-shell lobby-shell');
-  const header = node('header', 'topbar');
-  header.append(node('a', 'brand', 'POKER TABLE'));
-  header.append(node('span', 'practice-tag', 'オンライン対戦'));
-  shell.append(header);
+  shell.append(staticPageHeader());
   const intro = node('section', 'intro lobby-intro');
   intro.append(node('div', 'eyebrow', 'PRIVATE TABLE / PLAY WITH FRIENDS'));
   intro.append(node('h1', '', 'リンクを送って、すぐ対戦。'));
@@ -494,7 +646,7 @@ function renderOnlineLobby(): void {
   const practice = node('button', 'lobby-back', 'ひとりで練習する');
   practice.type = 'button';
   practice.addEventListener('click', () => {
-    void closeOnlineSession().finally(() => { onlineHost = false; onlineError = ''; startGame(); });
+    void closeOnlineSession().finally(() => { window.location.assign('/ai'); });
   });
   panel.append(practice);
   shell.append(panel);
@@ -505,6 +657,7 @@ function renderOnlineLobby(): void {
 function render(): void {
   if (appMode === 'online-lobby') { renderOnlineLobby(); return; }
   if (!table?.hand) return;
+  document.title = appMode === 'online-playing' ? 'オンライン対戦 — POKER TABLE' : 'AI対戦 — POKER TABLE';
   archiveCompletedHand();
   const view = getPublicTableView(table, humanId);
   const hand = table.hand;
@@ -516,8 +669,8 @@ function render(): void {
   const shell = node('main', `page-shell play-shell${appMode === 'online-playing' ? ' online-play-shell' : ''}`);
 
   const header = node('header', 'topbar');
-  const brand = node('a', 'brand', 'POKER TABLE');
-  brand.href = '/';
+  const brand = pageLink('POKER TABLE', '/', false);
+  brand.classList.add('brand');
   brand.setAttribute('aria-label', 'ポーカーテーブル ホーム');
   const playerControl = node('label', 'player-name-control');
   playerControl.append(node('span', '', '名前'));
@@ -533,7 +686,7 @@ function render(): void {
     render();
   });
   playerControl.append(playerNameInput);
-  header.append(brand, playerControl, node('span', 'practice-tag', appMode === 'online-playing' ? 'オンライン卓' : '練習テーブル'));
+  header.append(brand, playerControl, node('span', 'practice-tag', appMode === 'online-playing' ? 'オンライン卓' : 'AI対戦'));
   shell.append(header);
 
   const intro = node('section', 'intro');
@@ -544,14 +697,9 @@ function render(): void {
     : '個性の異なるAIとテキサスホールデムを練習。勝率の目安とコーチの解説を見ながら、チップを賭ける判断を試せます。'));
   shell.append(intro);
   const playModeBar = node('section', 'play-mode-bar');
-  playModeBar.append(node('span', 'play-mode-copy', appMode === 'online-playing' ? '友だちとの対戦中' : '友だちとプレイ'));
-  const onlineButton = node('button', 'online-entry-button', appMode === 'online-playing' ? 'ルーム情報・招待リンク' : 'オンライン対戦を始める →');
-  onlineButton.type = 'button';
-  onlineButton.addEventListener('click', () => {
-    if (appMode !== 'online-playing') { onlineRoomId = ''; onlineHost = false; onlineError = ''; }
-    appMode = 'online-lobby';
-    render();
-  });
+  playModeBar.append(node('span', 'play-mode-copy', appMode === 'online-playing' ? '友だちとの対戦中' : 'AIと練習中'));
+  const onlineButton = pageLink(appMode === 'online-playing' ? 'ルーム情報・招待リンク' : '友だちとオンライン対戦 →', appMode === 'online-playing' ? `/online#room=${onlineRoomId}` : '/online');
+  onlineButton.classList.add('online-entry-button');
   playModeBar.append(onlineButton);
   shell.append(playModeBar);
   const beginnerGuide = node('details', 'beginner-guide');
@@ -825,18 +973,6 @@ function render(): void {
   playLayout.append(actionPanel);
   shell.append(playLayout, secondaryInfo);
 
-  const glossary = node('details', 'glossary');
-  const summary = node('summary', '', '用語を確認する');
-  glossary.append(summary);
-  const glossaryGrid = node('div', 'glossary-grid');
-  for (const entry of POKER_GLOSSARY) {
-    const definition = node('div', 'glossary-entry');
-    definition.append(node('strong', '', entry.term), node('p', '', entry.explanation));
-    glossaryGrid.append(definition);
-  }
-  glossary.append(glossaryGrid);
-  shell.append(glossary);
-
   const archive = node('details', 'recent-hands');
   archive.append(node('summary', '', `最近のハンド (${recentHands.length}/10)`));
   const recordedStats = recentHands.filter((item) => item.outcome !== undefined && item.chipsChange !== undefined);
@@ -883,6 +1019,10 @@ function render(): void {
     ? 'ゲスト認証済み'
     : guestIdentityError ? 'ゲスト認証に接続できません。練習モードで動作中です。' : '端末内ゲスト';
   const footer = node('footer', 'footer-note', `${identityStatus} · 練習用テーブル · ゲーム内チップに金銭的価値はありません`);
+  const references = node('nav', 'game-reference-links');
+  references.setAttribute('aria-label', 'ポーカーガイド');
+  references.append(pageLink('用語集', '/terms'), pageLink('役の強さ一覧', '/hands'), pageLink('トップ', '/'));
+  shell.append(references);
   shell.append(footer);
   app!.replaceChildren(shell);
 }
@@ -917,19 +1057,28 @@ function stageLabel(stage: string): string {
   return ({ preflop: 'プリフロップ', flop: 'フロップ', turn: 'ターン', river: 'リバー', complete: 'ショーダウン' } as Record<string, string>)[stage] ?? stage;
 }
 
-void initializeGuestIdentity().then(({ guestId, onlineReady }) => {
+if (sitePage === 'home') renderHomePage();
+else if (sitePage === 'terms') renderTermsPage();
+else if (sitePage === 'hands') renderHandsPage();
+else void initializeGuestIdentity().then(({ guestId, onlineReady }) => {
   humanId = guestId;
   guestIdentityOnlineReady = onlineReady;
-  const inviteId = window.location.hash.match(/^#room=([a-f0-9]{36})$/u)?.[1];
-  if (inviteId) {
+  if (sitePage === 'online') {
+    const inviteId = window.location.hash.match(/^#room=([a-f0-9]{36})$/u)?.[1];
     appMode = 'online-lobby';
-    onlineError = '';
-    renderOnlineLobby();
-    void joinOnlineRoom(inviteId);
+    if (inviteId) {
+      onlineError = '';
+      renderOnlineLobby();
+      void joinOnlineRoom(inviteId);
+    } else renderOnlineLobby();
   } else startGame();
 }).catch(() => {
   // Keep practice available during an auth outage; online room actions will require a valid session.
   humanId = globalThis.crypto.randomUUID();
   guestIdentityError = true;
-  startGame();
+  if (sitePage === 'online') {
+    appMode = 'online-lobby';
+    onlineError = 'オンライン対戦に接続できません。Supabaseの設定と接続を確認してください。';
+    renderOnlineLobby();
+  } else startGame();
 });
