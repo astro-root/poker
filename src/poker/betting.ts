@@ -50,12 +50,14 @@ export function createBettingRound(
   players: readonly BettingPlayer[],
   firstActorId: string,
   minimumBet: number,
+  openingBet = 0,
 ): BettingRound {
   validatePlayers(players);
   if (!Number.isSafeInteger(minimumBet) || minimumBet < 1) throw new RangeError('Minimum bet must be a positive safe integer');
+  if (!Number.isSafeInteger(openingBet) || openingBet < 0) throw new RangeError('Opening bet must be a non-negative safe integer');
   const first = players.find((player) => player.id === firstActorId);
   if (!first || first.folded || first.stack === 0) throw new Error('First actor must be able to act');
-  const currentBet = Math.max(...players.map((player) => player.streetContribution));
+  const currentBet = Math.max(openingBet, ...players.map((player) => player.streetContribution));
   const canAct = players.filter((player) => !player.folded && player.stack > 0);
   return {
     players: players.map((player) => ({ ...player })),

@@ -229,6 +229,21 @@ test('automatically runs out when one player covers multiple short all-ins', () 
   assert.equal(table.seats.reduce((sum, seat) => sum + seat.stack, 0), 1_300);
 });
 
+test('keeps the nominal big blind as the preflop call and raise target with short blinds', () => {
+  const cases = [
+    { seats: [{ id: 'button', stack: 500 }, { id: 'small-blind', stack: 500 }, { id: 'big-blind', stack: 8 }], actorId: 'button', call: 20, chips: 1_008 },
+    { seats: [{ id: 'button', stack: 500 }, { id: 'small-blind', stack: 3 }, { id: 'big-blind', stack: 500 }], actorId: 'button', call: 20, chips: 1_003 },
+    { seats: [{ id: 'button', stack: 500 }, { id: 'big-blind', stack: 500 }], actorId: 'button', call: 10, chips: 1_000 },
+  ];
+  for (const example of cases) {
+    const hand = startHand(example.seats, 0, 10, 20);
+    assert.equal(hand.bettingRound?.actorId, example.actorId);
+    assert.equal(getLegalActions(hand.bettingRound!, example.actorId).callAmount, example.call);
+    assert.equal(getLegalActions(hand.bettingRound!, example.actorId).minRaiseTo, 40);
+    assert.equal(hand.players.reduce((sum, p) => sum + p.stack + p.totalContribution, 0), example.chips);
+  }
+});
+
 test('public hand views hide opponents’ cards and the undealt deck', () => {
   const hand = startHand([{ id: 'button', stack: 100 }, { id: 'big-blind', stack: 100 }], 0, 5, 10);
   const view = getPublicHandView(hand, 'button');

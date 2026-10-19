@@ -206,7 +206,7 @@ function advance(hand: PokerHand): PokerHand {
     next = revealNextStreet(next);
     const firstActor = nextPlayerId(next.players, next.buttonPlayerId, (player) => !player.folded && player.stack > 0);
     if (firstActor && needsBettingAction(next.players, firstActor)) {
-      const bettingRound = createBettingRound(toBettingPlayers(next.players), firstActor, next.bigBlind);
+      const bettingRound = createBettingRound(toBettingPlayers(next.players), firstActor, next.bigBlind, 0);
       return withRound(next, bettingRound);
     }
     // Everyone remaining is all-in: reveal the rest of the board without actions.
@@ -266,7 +266,7 @@ export function startHand(
   };
   const firstActor = nextPlayerId(withBlindContributions, bigBlindId, (player) => !player.folded && player.stack > 0);
   if (firstActor && needsBettingAction(withBlindContributions, firstActor)) {
-    return withRound(hand, createBettingRound(toBettingPlayers(withBlindContributions), firstActor, bigBlind));
+    return withRound(hand, createBettingRound(toBettingPlayers(withBlindContributions), firstActor, bigBlind, bigBlind));
   }
   return advance(hand);
 }
