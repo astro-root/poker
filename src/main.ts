@@ -5,9 +5,12 @@ import { getHandPot } from './poker/hand.ts';
 import { getLegalActions, type BettingAction } from './poker/betting.ts';
 import { evaluateHand } from './poker/evaluator.ts';
 import { explainHand, getCallBreakEvenProbability, POKER_GLOSSARY } from './poker/education.ts';
+import { initializeGuestIdentity } from './supabase/client.ts';
 import './style.css';
 
-const humanId = globalThis.crypto.randomUUID();
+let humanId = '';
+let guestIdentityOnlineReady = false;
+let guestIdentityError = false;
 const aiIds = Array.from({ length: 9 }, (_, index) => `table-ai-${index + 1}`);
 const opponentCountOptions = [1, 3, 5] as const;
 const app = document.querySelector<HTMLElement>('#app');
@@ -554,7 +557,10 @@ function render(): void {
   }
   shell.append(archive);
 
-  const footer = node('footer', 'footer-note', '練習用テーブル · ゲーム内チップに金銭的価値はありません');
+  const identityStatus = guestIdentityOnlineReady
+    ? 'ゲスト認証済み'
+    : guestIdentityError ? 'ゲスト認証に接続できません。練習モードで動作中です。' : '端末内ゲスト';
+  const footer = node('footer', 'footer-note', `${identityStatus} · 練習用テーブル · ゲーム内チップに金銭的価値はありません`);
   shell.append(footer);
   app!.replaceChildren(shell);
 }
@@ -589,4 +595,13 @@ function stageLabel(stage: string): string {
   return ({ preflop: 'プリフロップ', flop: 'フロップ', turn: 'ターン', river: 'リバー', complete: 'ショーダウン' } as Record<string, string>)[stage] ?? stage;
 }
 
-startGame();
+void initializeGuestIdentity().then(({ guestId, onlineReady }) => {
+  humanId = guestId;
+  guestIdentityOnlineReady = onlineReady;
+  startGame();
+}).catch(() => {
+  // Keep practice available during an auth outage; online room actions will require a valid session.
+  humanId = globalThis.crypto.randomUUID();
+  guestIdentityError = true;
+  startGame();
+});

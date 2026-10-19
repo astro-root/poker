@@ -1,6 +1,6 @@
 # Supabase セットアップ手順
 
-この文書は、Supabase 側でオーナーが行う作業をまとめたものです。現在のリポジトリには Supabase 接続コード、`supabase/` ディレクトリ、DB マイグレーションはまだありません。**いまはプロジェクト作成と接続情報の保管まで**行い、テーブル作成や SQL の実行、Vercel の環境変数登録はコード側の準備ができるまで待ってください。
+この文書は、Supabase 側でオーナーが行う作業をまとめたものです。現在は Supabase Auth の匿名ログインをブラウザーに接続済みです。ルームDB、RLSポリシー、対戦API、Realtime は未実装です。**Dashboard の SQL Editor でテーブルを作らず**、スキーマはリポジトリ内のマイグレーションを用意してから適用します。
 
 ## いま行うこと
 
@@ -23,26 +23,27 @@ Supabase Dashboard の **Connect** または API Keys の画面から、次の2�
 
 値はパスワードマネージャーなどに保管し、ここへ貼り付ける必要はありません。Publishable key はブラウザーで使える公開識別子で、秘密情報ではありません。実際に読み書きできるデータは PostgreSQL の権限と RLS ポリシーで制御するため、RLS を必ず設定します。
 
-**Secret key（`sb_secret_...`）はブラウザーに置かず、Git に登録せず、チャットにも送らないでください。** Secret key は RLS を迂回できるため、後でサーバー処理に必要になった場合のみ Vercel のサーバー環境変数に登録します。現在のアプリはまだ環境変数を読み込みませんので、Vercel への登録は保留してください。
+**Secret key（`sb_secret_...`）はブラウザーに置かず、Git に登録せず、チャットにも送らないでください。** Secret key は RLS を迂回できるため、サーバー処理に必要な場合だけサーバー環境変数に設定します。
 
 Supabase は新しいプロジェクトでは Publishable / Secret keys を案内しています。キーの役割は[公式 API キー説明](https://supabase.com/docs/guides/getting-started/api-keys)と[データ保護ガイド](https://supabase.com/docs/guides/database/secure-data)を参照してください。
 
-## コード接続時に行うこと
-
-以下はコード側にマイグレーションと接続実装が追加されたあとに行います。**Dashboard の SQL Editor で独自にテーブルを作らないでください。** 以後のスキーマ変更はリポジトリで管理するマイグレーションから適用します。
-
-### 3. ゲスト認証を有効にする
+## 匿名ログイン
 
 - Supabase Dashboard の Authentication 設定で Anonymous Sign-Ins を有効にします。
 - 匿名ユーザーは DB では `authenticated` ロールとして扱われます。`anon` と同じ権限だと考えず、RLS ポリシーで `is_anonymous` claim とルーム参加状態を確認します。
 - ブラウザーデータ消去や端末変更後は匿名アカウントを復元できない場合があります。ゲスト利用時にこの制約を利用者へ表示します。
 - 公開前に匿名アカウント作成へのレート制限や CAPTCHA の要否を確認します。
 
+コードは `.env.local` の `VITE_SUPABASE_URL` と `VITE_SUPABASE_PUBLISHABLE_KEY` を読み、匿名セッションを作成・保存します。`.env.local` は Git に追加しないでください。ローカル練習自体はこれらの値がなくても動作します。
+
+## これから行う作業
+
+**Dashboard の SQL Editor で独自にテーブルを作らないでください。** 以後のスキーマ変更はリポジトリで管理するマイグレーションから適用します。
+
+### 3. DB と RLS をマイグレーションから作る
+
 [Anonymous Sign-Ins の公式ガイド](https://supabase.com/docs/guides/auth/auth-anonymous)
 
-### 4. DB と RLS をマイグレーションから作る
-
-- こちらから SQL マイグレーションと適用手順を提示してから実施します。
 - 全ての公開テーブルで RLS を有効にし、必要な操作だけ許可します。
 - ルーム状態、メンバー、セッションを誰が読めて誰が更新できるかをポリシーで制限します。
 - 手札・未配札デッキ・勝敗をクライアントから直接書き換えられるポリシーは作りません。勝敗を決めるアクションはサーバー側で検証します。
@@ -50,7 +51,7 @@ Supabase は新しいプロジェクトでは Publishable / Secret keys を案�
 
 Supabase はスキーマ変更をマイグレーションファイルで管理する手順を案内しています。[Database Migrations](https://supabase.com/docs/guides/deployment/database-migrations)
 
-### 5. Realtime を設定する
+### 4. Realtime を設定する
 
 - Realtime の Broadcast / Presence を使う場合、チャンネルを private にし、`realtime.messages` の RLS ポリシーでルーム参加者だけに購読・送信を許可します。
 - Realtime の設定で public channel access を無効にする作業は、対応する認可ポリシーを用意してから行います。設定変更時は接続中のクライアントが切断されることがあります。
@@ -58,16 +59,16 @@ Supabase はスキーマ変更をマイグレーションファイルで管理�
 
 [Realtime Authorization](https://supabase.com/docs/guides/realtime/authorization) · [Broadcast](https://supabase.com/docs/guides/realtime/broadcast)
 
-### 6. Vercel の環境変数を登録する
+### 5. Vercel の環境変数を登録する
 
-コード側の接続実装が追加されたら、README または実装時の案内に記載する**正確な変数名**で Vercel の Project Settings → Environment Variables に登録します。Development / Preview / Production のどの環境で使うかを確認してください。
+Vercelで匿名認証を試す場合、Vercel の Project Settings → Environment Variables に次の2つを登録し、再デプロイします。Development / Preview / Production の適用先を確認してください。
 
-- ブラウザー向け URL と Publishable key だけをフロントエンド用の公開変数にします。
+- ブラウザー向け URL と Publishable key だけをフロントエンド用の公開変数にします（`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`）。
 - Secret key、DB パスワード、署名鍵はサーバー専用変数にし、`VITE_` や `NEXT_PUBLIC_` のような公開プレフィックスを付けません。
 - 値を登録・変更したら、新しいデプロイを行います。
 - 開発環境と本番環境で別プロジェクトを使う場合、値を混ぜないよう環境ごとに確認します。
 
-このリポジトリの現在の画面は Vite の静的サイトです。Supabase 接続後の環境変数名や Vercel Function の構成は、コードを追加するときに確定します。現時点では名前を推測して登録しないでください。
+このリポジトリの画面は Vite の静的サイトです。Vercel Functions とサーバー専用変数は、対戦APIを追加するときに別途案内します。
 
 ## 公開前の確認
 

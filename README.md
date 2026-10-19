@@ -29,7 +29,7 @@
 | --- | --- |
 | ポーカールールとルールテスト | 完了 |
 | ローカル練習画面、AI、学習支援 | 初期版あり |
-| ゲストID・ルームの状態遷移ロジック | 基礎ロジックあり。サーバー未接続 |
+| ゲストID・ルームの状態遷移ロジック | Supabase匿名認証を接続。ルームAPI・DB未接続 |
 | オンライン同期・招待URL・公開ルーム | 未着手 |
 | 観戦・戦績 | 未着手 |
 | 本番運用・複数クライアント検証 | 未着手 |
@@ -49,7 +49,7 @@
 
 ### Vercel とオンライン基盤
 
-現在の画面は Vite の静的サイトとして Vercel にデプロイできます。オンライン機能を実装する段階では、Vercel Functions などにサーバーAPIを追加する設計が必要です。データベース・リアルタイム通信には Supabase を候補として調査しましたが、接続実装はまだありません。
+現在の画面は Vite の静的サイトとして Vercel にデプロイできます。Supabase Auth の匿名ログインを接続し、ゲストIDをブラウザー間で安定して使う基礎を追加しました。ルームAPI・データベース・リアルタイム同期は未実装です。オンライン機能には Vercel Functions などのサーバーAPIが引き続き必要です。
 
 対戦アクションは Vercel のサーバーAPIで検証し、Postgres のトランザクション内でルーム状態とバージョンを更新する設計にします。クライアントから届いたカード、残高、勝敗は信用しません。Realtime は更新通知に使い、クライアント同士でゲーム状態を直接決めさせません。非公開手札は権限を持つ本人にだけ返し、観戦者向け・ルーム全体向けの配信データから除きます。再接続後はDBの最新状態を取り直します。
 
@@ -61,7 +61,7 @@ Vercel Functions の WebSocket も利用可能になっていますが、Functio
 
 ### ライブラリ
 
-ゲームルールの実行時依存は現在ありません。ブラウザーでは Web Crypto、テストやサーバー側処理では Node.js の標準機能を使います。画面は Vite と TypeScript で構成しています。Supabase接続時には公式の JavaScript クライアントを追加する予定です。現段階ではポーカー判定やUIコンポーネント用の外部ライブラリは追加していません。
+画面は Vite と TypeScript で構成し、Supabase Auth に公式 JavaScript クライアントを使います。ブラウザーでは Web Crypto、テストやサーバー側処理では Node.js の標準機能を使います。ポーカー判定やUIコンポーネント用の外部ライブラリは追加していません。
 
 Node.js の対応バージョンは `package.json` の `engines` を参照してください（現在は 22.12 以降）。
 
@@ -82,6 +82,15 @@ Vercel では Vite プロジェクトとしてビルドコマンド `npm run bui
 - `npm run preview` — 生成物をローカル確認
 - `npm test` — ルールコアのテストを実行
 - `npm run typecheck` — 開発依存をインストールした状態で型を確認
+
+## Supabase Auth のローカル設定
+
+Supabase Dashboard で Anonymous Sign-Ins を有効にし、`.env.example` を `.env.local` にコピーして次の値を設定します。
+
+- `VITE_SUPABASE_URL` — Project URL
+- `VITE_SUPABASE_PUBLISHABLE_KEY` — Publishable key
+
+値を設定した後 `npm run dev` を再起動すると匿名ゲストIDを取得します。どちらかの値が未設定ならローカル練習モードで動きます。Secret key はブラウザー変数に設定しないでください。Vercelで試す場合は同じ2つをProject Settings → Environment Variablesに登録して再デプロイします。
 
 ## ゲストとルームのセキュリティ
 
