@@ -6,6 +6,7 @@ import { buildPots, splitPot } from '../src/poker/pots.ts';
 import { applyBettingAction, createBettingRound, getLegalActions, postBlind, type BettingPlayer } from '../src/poker/betting.ts';
 import { resolveShowdown } from '../src/poker/showdown.ts';
 import { applyHandAction, getHandPot, getPublicHandView, startHand } from '../src/poker/hand.ts';
+import { applyTableAction, createTable, getPublicTableView, startNextHand } from '../src/poker/table.ts';
 
 const c = (rank: Card['rank'], suit: Card['suit']): Card => ({ rank, suit });
 
@@ -199,4 +200,27 @@ test('awards the pot immediately after every opponent folds', () => {
   assert.deepEqual(hand.result, { type: 'uncontested', winnerId: 'big-blind', pot: 15, payouts: { button: 0, 'small-blind': 0, 'big-blind': 15 } });
   assert.equal(getHandPot(hand), 0);
   assert.equal(hand.players.reduce((sum, player) => sum + player.stack, 0), 300);
+});
+
+test('rotates the button clockwise and skips seats with no chips', () => {
+  let table = createTable([
+    { id: 'a', stack: 100 },
+    { id: 'b', stack: 0 },
+    { id: 'c', stack: 100 },
+    { id: 'd', stack: 100 },
+  ], 5, 10);
+  table = startNextHand(table);
+  assert.equal(table.buttonPlayerId, 'a');
+  assert.equal(table.handNumber, 1);
+  assert.equal(table.hand?.bettingRound?.actorId, 'a');
+  assert.throws(() => startNextHand(table), /must finish/);
+  table = applyTableAction(table, table.version, 'a', { type: 'fold' });
+  table = applyTableAction(table, table.version, 'c', { type: 'fold' });
+  assert.equal(table.hand?.stage, 'complete');
+  assert.throws(() => applyTableAction(table, 1, 'd', { type: 'check' }), /Stale table version/);
+  table = startNextHand(table);
+  assert.equal(table.buttonPlayerId, 'c');
+  assert.equal(table.handNumber, 2);
+  assert.deepEqual(table.seats.map((seat) => seat.id), ['a', 'b', 'c', 'd']);
+  assert.equal(getPublicTableView(table).hand?.players.find((player) => player.id === 'd')?.holeCards, null);
 });
