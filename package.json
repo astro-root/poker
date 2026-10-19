@@ -1,0 +1,18 @@
+{
+  "name": "poker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Free online Texas Hold'em game",
+  "scripts": {
+    "test": "node --experimental-strip-types --test",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.3"
+  }
+}
