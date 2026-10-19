@@ -284,6 +284,9 @@ test('creates invite rooms without credentials in the URL and enforces seats', (
   assert.equal(invitationPath.includes(host.sessionToken), false);
   const joined = joinRoom(created, guest);
   assert.equal(joined.joinedAs, 'player');
+  const retried = joinRoom(joined.room, guest);
+  assert.equal(retried.room, joined.room);
+  assert.equal(retried.room.version, joined.room.version);
   assert.throws(() => joinRoom(joined.room, extra), /full/);
   const spectator = joinRoom(joined.room, extra, 'spectator');
   assert.equal(spectator.joinedAs, 'spectator');
@@ -311,6 +314,44 @@ test('starts public rooms with host permissions, admits late spectators, and han
   room = finishRoomGame(room, room.version);
   assert.equal(room.status, 'waiting');
   assert.throws(() => finishRoomGame(room, room.version - 1), /Stale room version/);
+});
+
+test('releases disconnected player seats after the active game resolves', () => {
+  const host = createGuestCredential('Host').credential;
+  const guest = createGuestCredential('Guest').credential;
+  const disconnected = createGuestCredential('Disconnected').credential;
+  let room = createRoom(host, {
+    visibility: 'public', maxPlayers: 3, startingStack: 100, smallBlind: 1, bigBlind: 2,
+  }).room;
+  room = joinRoom(room, guest).room;
+  room = joinRoom(room, disconnected).room;
+  room = startRoomGame(room, host.guestId, room.version);
+  room = leaveRoom(room, disconnected.guestId);
+  assert.ok(room.members.some((member) => member.guestId === disconnected.guestId));
+  room = finishRoomGame(room, room.version);
+  assert.equal(room.members.some((member) => member.guestId === disconnected.guestId), false);
+  assert.equal(room.status, 'waiting');
+  assert.equal(listPublicRooms([room])[0]?.availableSeats, 1);
+});
+
+test('never transfers host privileges to a spectator when players disconnect', () => {
+  const host = createGuestCredential('Host').credential;
+  const playerGuest = createGuestCredential('Player').credential;
+  const spectator = createGuestCredential('Spectator').credential;
+  let room = createRoom(host, {
+    visibility: 'public', maxPlayers: 3, startingStack: 100, smallBlind: 1, bigBlind: 2,
+  }).room;
+  room = joinRoom(room, playerGuest).room;
+  room = joinRoom(room, spectator, 'spectator').room;
+  room = startRoomGame(room, host.guestId, room.version);
+  room = leaveRoom(room, host.guestId);
+  assert.equal(room.hostGuestId, playerGuest.guestId);
+  room = leaveRoom(room, playerGuest.guestId);
+  assert.equal(room.hostGuestId, playerGuest.guestId);
+  assert.notEqual(room.hostGuestId, spectator.guestId);
+
+  const forgedHost = { ...room, status: 'waiting' as const, hostGuestId: spectator.guestId };
+  assert.throws(() => startRoomGame(forgedHost, spectator.guestId, forgedHost.version), /connected player/);
 });
 
 test('AI chooses only legal actions from its hole cards and public state', () => {

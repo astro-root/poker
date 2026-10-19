@@ -139,6 +139,9 @@ export function joinRoom(
   const displayName = normalizeDisplayName(guest.displayName);
   const existing = room.members.find((member) => member.guestId === guest.guestId);
   if (existing) {
+    if (existing.displayName === displayName && existing.connected) {
+      return { room, joinedAs: existing.role };
+    }
     const members = room.members.map((member) => member.guestId === guest.guestId
       ? { ...member, displayName, connected: true }
       : member);
@@ -166,6 +169,10 @@ export function startRoomGame(room: PokerRoom, actorGuestId: string, expectedVer
   if (expectedVersion !== room.version) throw new Error('Stale room version; fetch the latest room state');
   if (actorGuestId !== room.hostGuestId) throw new Error('Only the room host can start the game');
   if (room.status !== 'waiting') throw new Error('Room is not waiting for a game');
+  const host = room.members.find((member) => member.guestId === actorGuestId);
+  if (!host || host.role !== 'player' || !host.connected) {
+    throw new Error('Only a connected player can start the game');
+  }
   if (room.members.filter((member) => member.role === 'player' && member.connected).length < 2) {
     throw new Error('At least two connected players are required to start');
   }
@@ -176,7 +183,6 @@ function chooseNewHost(members: readonly RoomMember[]): string | null {
   return [...members]
     .filter((member) => member.connected && member.role === 'player')
     .sort((a, b) => a.seat! - b.seat!)[0]?.guestId
-    ?? members.find((member) => member.connected)?.guestId
     ?? null;
 }
 
@@ -191,8 +197,10 @@ export function leaveRoom(room: PokerRoom, guestId: string): PokerRoom {
     members = room.members.filter((candidate) => candidate.guestId !== guestId);
   }
   const hostGuestId = room.hostGuestId === guestId ? chooseNewHost(members) : room.hostGuestId;
-  const status = members.length === 0 || hostGuestId === null ? 'closed' : room.status;
-  return { ...room, members, hostGuestId: hostGuestId ?? guestId, status, version: room.version + 1 };
+  const status = members.length === 0 || (hostGuestId === null && room.status === 'waiting') ? 'closed' : room.status;
+  // If everyone disconnects during play, retain the old host identity until the active game resolves.
+  // Spectators never receive host privileges; reconnecting players can restore the room afterward.
+  return { ...room, members, hostGuestId: hostGuestId ?? room.hostGuestId, status, version: room.version + 1 };
 }
 
 export function finishRoomGame(room: PokerRoom, expectedVersion: number): PokerRoom {
@@ -201,7 +209,10 @@ export function finishRoomGame(room: PokerRoom, expectedVersion: number): PokerR
   const members = room.members.filter((member) => member.role === 'player' && member.connected);
   const players = members.filter((member) => member.stack > 0).length;
   if (players < 2) throw new Error('At least two players with chips are required for another hand');
-  return { ...room, status: 'waiting', version: room.version + 1 };
+  // Disconnected players keep their seats through the active game, then release them
+  // at the hand boundary so a waiting room cannot remain full of abandoned seats.
+  const remainingMembers = room.members.filter((member) => member.connected);
+  return { ...room, members: remainingMembers, status: 'waiting', version: room.version + 1 };
 }
 
 export function listPublicRooms(rooms: readonly PokerRoom[]): RoomSummary[] {
