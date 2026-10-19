@@ -1,5 +1,3 @@
-import { randomInt } from 'node:crypto';
-
 export const SUITS = ['clubs', 'diamonds', 'hearts', 'spades'] as const;
 export type Suit = (typeof SUITS)[number];
 export type Rank = 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
@@ -15,10 +13,24 @@ export function createDeck(): Card[] {
 export function shuffle<T>(items: readonly T[]): T[] {
   const deck = [...items];
   for (let i = deck.length - 1; i > 0; i--) {
-    const j = randomInt(i + 1);
+    const j = secureRandomInt(i + 1);
     [deck[i], deck[j]] = [deck[j]!, deck[i]!];
   }
   return deck;
+}
+
+/** Unbiased cryptographic integer generation shared by browsers and modern Node.js. */
+function secureRandomInt(maxExclusive: number): number {
+  if (!Number.isSafeInteger(maxExclusive) || maxExclusive < 1 || maxExclusive > 0x1_0000_0000) {
+    throw new RangeError('Random integer range is invalid');
+  }
+  const range = 0x1_0000_0000;
+  const limit = Math.floor(range / maxExclusive) * maxExclusive;
+  const value = new Uint32Array(1);
+  do {
+    globalThis.crypto.getRandomValues(value);
+  } while (value[0]! >= limit);
+  return value[0]! % maxExclusive;
 }
 
 export function deal(deck: Card[], count: number): Card[] {

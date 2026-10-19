@@ -5,14 +5,18 @@
   "type": "module",
   "description": "Free online Texas Hold'em game",
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
     "test": "node --experimental-strip-types test/poker.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
-    "node": ">=22.6"
+    "node": ">=22.12"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vite": "^8.2.0"
   }
 }
