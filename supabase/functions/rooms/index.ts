@@ -1,4 +1,3 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { applyTableAction, createTable, startNextHand, type TableState } from '../../../src/poker/table.ts';
 import type { BettingAction } from '../../../src/poker/betting.ts';
 
@@ -19,6 +18,39 @@ function response(body: unknown, status = 200): Response {
 function cleanName(value: unknown): string {
   if (typeof value !== 'string') return 'プレイヤー';
   return value.trim().slice(0, 20) || 'プレイヤー';
+}
+
+async function supabaseRequest<T>(url: string, key: string, path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set('apikey', key);
+  if (!headers.has('Authorization')) headers.set('Authorization', `Bearer ${key}`);
+  if (init.body !== undefined) headers.set('Content-Type', 'application/json');
+  const result = await fetch(`${url}${path}`, { ...init, headers });
+  const text = await result.text();
+  let payload: unknown;
+  try { payload = text ? JSON.parse(text) : null; } catch { payload = text; }
+  if (!result.ok) {
+    const detail = payload && typeof payload === 'object' && 'message' in payload
+      ? String((payload as { message: unknown }).message) : `Supabase request failed (${result.status})`;
+    throw new Error(detail);
+  }
+  return payload as T;
+}
+
+async function getRoom(url: string, serviceKey: string, roomId: string): Promise<RoomRow | null> {
+  const rows = await supabaseRequest<RoomRow[]>(url, serviceKey,
+    `/rest/v1/poker_rooms?id=eq.${encodeURIComponent(roomId)}&select=*`);
+  return rows[0] ?? null;
+}
+
+async function saveRoom(url: string, serviceKey: string, row: RoomRow, state: RoomState, status = row.status): Promise<RoomRow | null> {
+  const rows = await supabaseRequest<RoomRow[]>(url, serviceKey,
+    `/rest/v1/poker_rooms?id=eq.${encodeURIComponent(row.id)}&revision=eq.${row.revision}&select=*`, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({ state, status, revision: row.revision + 1, updated_at: new Date().toISOString() }),
+    });
+  return rows[0] ?? null;
 }
 
 function publicRoom(row: RoomRow, viewerId: string) {
@@ -62,11 +94,16 @@ Deno.serve(async (request: Request) => {
     const url = Deno.env.get('SUPABASE_URL')!;
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const authClient = createClient(url, anonKey, { auth: { persistSession: false }, global: { headers: { Authorization: `Bearer ${token}` } } });
-    const { data: authData, error: authError } = await authClient.auth.getUser(token);
-    if (authError || !authData.user) return response({ ok: false, error: 'ログイン状態を確認できません。' }, 401);
-    const userId = authData.user.id;
-    const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+    let authUser: { id: string };
+    try {
+      authUser = await supabaseRequest<{ id: string }>(url, anonKey, '/auth/v1/user', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      return response({ ok: false, error: 'ログイン状態を確認できません。' }, 401);
+    }
+    if (!authUser?.id) return response({ ok: false, error: 'ログイン状態を確認できません。' }, 401);
+    const userId = authUser.id;
     const body = await request.json();
     const action = body?.action;
 
@@ -75,15 +112,16 @@ Deno.serve(async (request: Request) => {
       crypto.getRandomValues(bytes);
       const id = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
       const state: RoomState = { members: [{ id: userId, name: cleanName(body.name) }], notice: '招待リンクを共有して友だちを待っています。', table: null };
-      const { data, error } = await db.from('poker_rooms').insert({ id, host_user_id: userId, status: 'waiting', revision: 0, state }).select('*').single();
-      if (error) throw error;
-      return response({ ok: true, room: publicRoom(data as RoomRow, userId) });
+      const rows = await supabaseRequest<RoomRow[]>(url, serviceKey, '/rest/v1/poker_rooms?select=*', {
+        method: 'POST', headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({ id, host_user_id: userId, status: 'waiting', revision: 0, state }),
+      });
+      return response({ ok: true, room: publicRoom(rows[0], userId) });
     }
 
     const roomId = typeof body?.roomId === 'string' ? body.roomId : '';
     if (!/^[a-f0-9]{36}$/u.test(roomId)) return response({ ok: false, error: '招待リンクが正しくありません。' }, 400);
-    const { data: found, error: readError } = await db.from('poker_rooms').select('*').eq('id', roomId).maybeSingle();
-    if (readError) throw readError;
+    const found = await getRoom(url, serviceKey, roomId);
     if (!found) return response({ ok: false, error: 'ルームが見つかりません。ホストに新しい招待リンクを頼んでください。' }, 404);
     let row = found as RoomRow;
 
@@ -93,9 +131,7 @@ Deno.serve(async (request: Request) => {
         if (row.status !== 'waiting') return response({ ok: false, error: 'この対戦はすでに始まっています。' }, 409);
         if (row.state.members.length >= 6) return response({ ok: false, error: 'このルームは満員です（最大6人）。' }, 409);
         const state = { ...row.state, members: [...row.state.members, { id: userId, name: cleanName(body.name) }], notice: `${cleanName(body.name)}が参加しました。` };
-        const { data, error } = await db.from('poker_rooms').update({ state, revision: row.revision + 1, updated_at: new Date().toISOString() })
-          .eq('id', row.id).eq('revision', row.revision).select('*').maybeSingle();
-        if (error) throw error;
+        const data = await saveRoom(url, serviceKey, row, state);
         if (!data) return response({ ok: false, error: 'ルームが更新されました。もう一度参加してください。' }, 409);
         row = data as RoomRow;
       }
@@ -130,10 +166,7 @@ Deno.serve(async (request: Request) => {
       nextState = { ...row.state, table: nextTable, notice: '次のハンドが始まりました。' };
     } else return response({ ok: false, error: '操作が正しくありません。' }, 400);
 
-    const { data: updated, error: updateError } = await db.from('poker_rooms')
-      .update({ state: nextState, status, revision: row.revision + 1, updated_at: new Date().toISOString() })
-      .eq('id', row.id).eq('revision', row.revision).select('*').maybeSingle();
-    if (updateError) throw updateError;
+    const updated = await saveRoom(url, serviceKey, row, nextState, status);
     if (!updated) return response({ ok: false, error: '同時に操作がありました。最新の状態に更新してください。' }, 409);
     return response({ ok: true, room: publicRoom(updated as RoomRow, userId) });
   } catch (error) {
