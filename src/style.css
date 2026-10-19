@@ -70,6 +70,17 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .history-list { display: grid; gap: 7px; margin: 0; padding: 0 18px 14px 36px; color: #68766d; font-size: 10px; line-height: 1.6; }
 .history-list li::marker { color: #a48750; }
 .history-empty { list-style: none; margin-left: -18px; color: #89938b; }
+.recent-hands { margin-top: 18px; border-top: 1px solid #dedfd7; }
+.recent-hands > summary { width: fit-content; padding: 14px 2px; color: #536c5e; cursor: pointer; font-size: 11px; font-weight: 600; }
+.archive-list { display: grid; gap: 7px; }
+.archive-entry { border: 1px solid #e2e4dc; border-radius: 9px; background: white; }
+.archive-entry summary { padding: 11px 13px; color: #52665a; cursor: pointer; font-size: 10px; line-height: 1.6; }
+.archive-board, .archive-actions { margin: 0; padding: 0 14px 10px 30px; color: #7b8780; font-size: 10px; line-height: 1.7; }
+.archive-board { padding-left: 14px; }
+.archive-actions { padding-bottom: 13px; }
+.archive-empty { color: #89938b; font-size: 10px; }
+.clear-archive { margin-top: 10px; border: 0; background: transparent; padding: 7px 0; color: #8a6a58; cursor: pointer; font-size: 10px; }
+.clear-archive:focus-visible, .recent-hands summary:focus-visible, .archive-entry summary:focus-visible { outline: 3px solid #c89c50; outline-offset: 2px; }
 
 .lesson-card { display: flex; gap: 13px; margin-top: 14px; padding: 17px 19px; border: 1px solid #dce8df; border-radius: 14px; background: #f0f5f0; }
 .lesson-icon { display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border-radius: 9px; background: #dce9df; color: var(--green); }

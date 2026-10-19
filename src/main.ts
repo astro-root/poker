@@ -13,12 +13,16 @@ const app = document.querySelector<HTMLElement>('#app');
 if (!app) throw new Error('Application root is missing');
 
 const playerNameKey = 'poker-practice-player-name';
+const handArchiveKey = 'poker-practice-hand-archive';
 let playerName = loadPlayerName();
 let table: TableState | null = null;
 let aiTimer: number | undefined;
 let aiThinking = false;
 let notice = 'あなたの番です。合法なアクションを選んでください。';
 let handHistory: string[] = [];
+type ArchivedHand = Readonly<{ handNumber: number; completedAt: string; actions: readonly string[]; board: readonly string[]; result: string }>;
+let recentHands = loadHandArchive();
+let archivedHand: object | null = null;
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
   const element = document.createElement(tag);
@@ -37,6 +41,46 @@ function loadPlayerName(): string {
   } catch {
     return 'あなた';
   }
+}
+
+function loadHandArchive(): ArchivedHand[] {
+  try {
+    const value: unknown = JSON.parse(globalThis.localStorage.getItem(handArchiveKey) ?? '[]');
+    if (!Array.isArray(value)) return [];
+    return value.filter((item: unknown): item is ArchivedHand => {
+      if (!item || typeof item !== 'object') return false;
+      const record = item as Record<string, unknown>;
+      return Number.isSafeInteger(record.handNumber)
+        && typeof record.completedAt === 'string' && Number.isFinite(Date.parse(record.completedAt))
+        && Array.isArray(record.actions) && record.actions.length <= 100
+        && record.actions.every((action: unknown) => typeof action === 'string' && action.length <= 300)
+        && Array.isArray(record.board) && record.board.length <= 5
+        && record.board.every((card: unknown) => typeof card === 'string' && card.length <= 4)
+        && typeof record.result === 'string' && record.result.length <= 500;
+    }).slice(0, 10);
+  } catch {
+    return [];
+  }
+}
+
+function archiveCompletedHand(): void {
+  const hand = table?.hand;
+  if (!table || !hand || hand.stage !== 'complete' || archivedHand === hand || !hand.result) return;
+  archivedHand = hand;
+  const result = hand.result.type === 'uncontested'
+    ? `${hand.result.winnerId === humanId ? playerName : '相手'}がポット ${formatChips(hand.result.pot)} チップを獲得`
+    : hand.result.settlement.pots.map((pot, index) => {
+      const winners = pot.winnerIds.map((id) => id === humanId ? playerName : '相手').join('・');
+      return `${index === 0 ? 'メイン' : `サイド${index}`} ${formatChips(pot.amount)}: ${winners}`;
+    }).join(' / ');
+  recentHands = [{
+    handNumber: table.handNumber,
+    completedAt: new Date().toISOString(),
+    actions: [...handHistory],
+    board: hand.board.map(cardLabel),
+    result,
+  }, ...recentHands].slice(0, 10);
+  try { globalThis.localStorage.setItem(handArchiveKey, JSON.stringify(recentHands)); } catch { /* Keep the in-memory summary if storage is unavailable. */ }
 }
 
 function cardLabel(card: Card): string {
@@ -146,6 +190,7 @@ function createActionButton(label: string, action: BettingAction, style: string,
 
 function render(): void {
   if (!table?.hand) return;
+  archiveCompletedHand();
   const view = getPublicTableView(table, humanId);
   const hand = table.hand;
   const me = hand.players.find((player) => player.id === humanId);
@@ -338,6 +383,34 @@ function render(): void {
   }
   glossary.append(glossaryGrid);
   shell.append(glossary);
+
+  const archive = node('details', 'recent-hands');
+  archive.append(node('summary', '', `最近のハンド (${recentHands.length}/10)`));
+  if (recentHands.length === 0) {
+    archive.append(node('p', 'archive-empty', 'ハンドが終了すると、ここに結果が保存されます。'));
+  } else {
+    const archiveList = node('div', 'archive-list');
+    for (const item of recentHands) {
+      const entry = node('details', 'archive-entry');
+      const date = new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(item.completedAt));
+      entry.append(node('summary', '', `ハンド ${item.handNumber} · ${date} · ${item.result}`));
+      if (item.board.length) entry.append(node('p', 'archive-board', `ボード: ${item.board.join(' ')}`));
+      const actions = node('ol', 'archive-actions');
+      for (const action of item.actions) actions.append(node('li', '', action));
+      entry.append(actions);
+      archiveList.append(entry);
+    }
+    archive.append(archiveList);
+    const clearButton = node('button', 'clear-archive', '履歴を消去');
+    clearButton.type = 'button';
+    clearButton.addEventListener('click', () => {
+      recentHands = [];
+      try { globalThis.localStorage.removeItem(handArchiveKey); } catch { /* Keep the in-memory archive cleared. */ }
+      render();
+    });
+    archive.append(clearButton);
+  }
+  shell.append(archive);
 
   const footer = node('footer', 'footer-note', '練習用テーブル · ゲーム内チップに金銭的価値はありません');
   shell.append(footer);
