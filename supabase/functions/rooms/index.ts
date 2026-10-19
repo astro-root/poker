@@ -138,6 +138,32 @@ Deno.serve(async (request: Request) => {
       return response({ ok: true, room: publicRoom(row, userId) });
     }
 
+    if (action === 'leave') {
+      if (!row.state.members.some((member) => member.id === userId)) {
+        return response({ ok: false, error: 'このルームの参加者ではありません。' }, 403);
+      }
+      // Keep active players in the room so they can reconnect to an ongoing hand.
+      if (row.status === 'playing') return response({ ok: true, room: publicRoom(row, userId) });
+      const members = row.state.members.filter((member) => member.id !== userId);
+      if (members.length === 0) {
+        const deleted = await supabaseRequest<RoomRow[]>(url, serviceKey,
+          `/rest/v1/poker_rooms?id=eq.${encodeURIComponent(row.id)}&revision=eq.${row.revision}`, {
+            method: 'DELETE', headers: { Prefer: 'return=representation' },
+          });
+        if (!deleted.length) return response({ ok: false, error: 'ルームの状態が更新されました。もう一度お試しください。' }, 409);
+        return response({ ok: true, room: null });
+      }
+      const state: RoomState = { ...row.state, members, notice: `${row.state.members.find((member) => member.id === userId)?.name ?? 'プレイヤー'}が退出しました。` };
+      const rows = await supabaseRequest<RoomRow[]>(url, serviceKey,
+        `/rest/v1/poker_rooms?id=eq.${encodeURIComponent(row.id)}&revision=eq.${row.revision}&select=*`, {
+          method: 'PATCH', headers: { Prefer: 'return=representation' },
+          body: JSON.stringify({ state, host_user_id: row.host_user_id === userId ? members[0].id : row.host_user_id,
+            revision: row.revision + 1, updated_at: new Date().toISOString() }),
+        });
+      if (!rows.length) return response({ ok: false, error: 'ルームの状態が更新されました。もう一度お試しください。' }, 409);
+      return response({ ok: true, room: publicRoom(rows[0], userId) });
+    }
+
     if (!row.state.members.some((member) => member.id === userId)) return response({ ok: false, error: 'このルームの参加者ではありません。' }, 403);
     if (action === 'state') return response({ ok: true, room: publicRoom(row, userId) });
 

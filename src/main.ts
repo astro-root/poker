@@ -7,7 +7,7 @@ import { evaluateHand } from './poker/evaluator.ts';
 import { estimateEquity, type EquityEstimate } from './poker/equity.ts';
 import { explainHand, getCallBreakEvenProbability, POKER_GLOSSARY } from './poker/education.ts';
 import { initializeGuestIdentity } from './supabase/client.ts';
-import { createRoom, joinRoom, nextRoomHand, readRoom, startRoom as startServerRoom, submitRoomAction, type OnlineRoom, type RoomPeer } from './supabase/online-room.ts';
+import { createRoom, joinRoom, leaveRoom, nextRoomHand, readRoom, startRoom as startServerRoom, submitRoomAction, type OnlineRoom, type RoomPeer } from './supabase/online-room.ts';
 import './style.css';
 
 let humanId = '';
@@ -256,6 +256,10 @@ function changeMode(mode: AppMode): void {
 async function closeOnlineSession(): Promise<void> {
   if (onlinePollTimer) window.clearInterval(onlinePollTimer);
   onlinePollTimer = undefined;
+  const roomId = onlineRoomId;
+  if (roomId) {
+    try { await leaveRoom(roomId); } catch { /* The player can still return to practice if the server is unreachable. */ }
+  }
   onlineRoomId = '';
   onlineStarted = false;
   onlinePeers = [];

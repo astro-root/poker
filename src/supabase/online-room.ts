@@ -29,6 +29,7 @@ export const submitRoomAction = (roomId: string, expectedVersion: number, action
   request('action', { roomId, expectedVersion, pokerAction: action });
 export const nextRoomHand = (roomId: string, expectedVersion: number): Promise<OnlineRoom> =>
   request('next-hand', { roomId, expectedVersion });
+export const leaveRoom = (roomId: string): Promise<OnlineRoom | null> => request('leave', { roomId });
 
 export function createRoomId(): string {
   const bytes = new Uint8Array(18);
