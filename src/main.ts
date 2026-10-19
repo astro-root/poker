@@ -20,9 +20,18 @@ let aiTimer: number | undefined;
 let aiThinking = false;
 let notice = 'あなたの番です。合法なアクションを選んでください。';
 let handHistory: string[] = [];
-type ArchivedHand = Readonly<{ handNumber: number; completedAt: string; actions: readonly string[]; board: readonly string[]; result: string }>;
+type ArchivedHand = Readonly<{
+  handNumber: number;
+  completedAt: string;
+  actions: readonly string[];
+  board: readonly string[];
+  result: string;
+  outcome?: 'win' | 'loss' | 'draw';
+  chipsChange?: number;
+}>;
 let recentHands = loadHandArchive();
 let archivedHand: object | null = null;
+let humanStackAtHandStart = 1_000;
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
   const element = document.createElement(tag);
@@ -56,7 +65,9 @@ function loadHandArchive(): ArchivedHand[] {
         && record.actions.every((action: unknown) => typeof action === 'string' && action.length <= 300)
         && Array.isArray(record.board) && record.board.length <= 5
         && record.board.every((card: unknown) => typeof card === 'string' && card.length <= 4)
-        && typeof record.result === 'string' && record.result.length <= 500;
+        && typeof record.result === 'string' && record.result.length <= 500
+        && (record.outcome === undefined || ['win', 'loss', 'draw'].includes(String(record.outcome)))
+        && (record.chipsChange === undefined || Number.isSafeInteger(record.chipsChange));
     }).slice(0, 10);
   } catch {
     return [];
@@ -73,12 +84,17 @@ function archiveCompletedHand(): void {
       const winners = pot.winnerIds.map((id) => id === humanId ? playerName : '相手').join('・');
       return `${index === 0 ? 'メイン' : `サイド${index}`} ${formatChips(pot.amount)}: ${winners}`;
     }).join(' / ');
+  const humanFinalStack = hand.players.find((player) => player.id === humanId)?.stack ?? humanStackAtHandStart;
+  const chipsChange = humanFinalStack - humanStackAtHandStart;
+  const outcome: ArchivedHand['outcome'] = chipsChange > 0 ? 'win' : chipsChange < 0 ? 'loss' : 'draw';
   recentHands = [{
     handNumber: table.handNumber,
     completedAt: new Date().toISOString(),
     actions: [...handHistory],
     board: hand.board.map(cardLabel),
     result,
+    outcome,
+    chipsChange,
   }, ...recentHands].slice(0, 10);
   try { globalThis.localStorage.setItem(handArchiveKey, JSON.stringify(recentHands)); } catch { /* Keep the in-memory summary if storage is unavailable. */ }
 }
@@ -111,6 +127,8 @@ function startGame(): void {
     { id: aiId, stack: 1_000 },
   ], 5, 10);
   table = startNextHand(table);
+  humanStackAtHandStart = 1_000;
+  archivedHand = null;
   handHistory = [];
   notice = 'あなたの番です。チェック、コール、レイズなどを選べます。';
   render();
@@ -332,8 +350,12 @@ function render(): void {
     nextButton.type = 'button';
     nextButton.addEventListener('click', () => {
       try {
-        if (canContinue) table = startNextHand(table!);
-        else startGame();
+        if (canContinue) {
+          humanStackAtHandStart = table!.seats.find((seat) => seat.id === humanId)?.stack ?? 0;
+          table = startNextHand(table!);
+          handHistory = [];
+          archivedHand = null;
+        } else startGame();
         notice = 'あなたの番です。';
         render();
         runAiIfNeeded();
@@ -409,6 +431,16 @@ function render(): void {
 
   const archive = node('details', 'recent-hands');
   archive.append(node('summary', '', `最近のハンド (${recentHands.length}/10)`));
+  const recordedStats = recentHands.filter((item) => item.outcome !== undefined && item.chipsChange !== undefined);
+  const wins = recordedStats.filter((item) => item.outcome === 'win').length;
+  const losses = recordedStats.filter((item) => item.outcome === 'loss').length;
+  const draws = recordedStats.filter((item) => item.outcome === 'draw').length;
+  const netChips = recordedStats.reduce((sum, item) => sum + (item.chipsChange ?? 0), 0);
+  const stats = node('section', 'practice-stats');
+  stats.append(node('h2', '', `練習戦績 · 直近${recordedStats.length}ハンド`));
+  stats.append(node('p', '', `勝ち ${wins} · 負け ${losses} · 引き分け ${draws}`));
+  stats.append(node('p', '', `チップ増減 ${netChips > 0 ? '+' : ''}${formatChips(netChips)}`));
+  archive.append(stats);
   if (recentHands.length === 0) {
     archive.append(node('p', 'archive-empty', 'ハンドが終了すると、ここに結果が保存されます。'));
   } else {
