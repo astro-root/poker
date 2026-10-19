@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createDeck, deal, shuffle, type Card } from '../src/poker/cards.ts';
 import { compareHands, evaluateHand } from '../src/poker/evaluator.ts';
 import { buildPots, splitPot } from '../src/poker/pots.ts';
+import { applyBettingAction, createBettingRound, getLegalActions, postBlind, type BettingPlayer } from '../src/poker/betting.ts';
 
 const c = (rank: Card['rank'], suit: Card['suit']): Card => ({ rank, suit });
 
@@ -46,4 +47,60 @@ test('builds side pots including folded contributions and splits odd chips', () 
     { amount: 80, eligiblePlayerIds: ['a'] },
   ]);
   assert.deepEqual([...splitPot(5, ['a', 'b'])], [['a', 3], ['b', 2]]);
+});
+
+const player = (id: string, stack = 100, streetContribution = 0): BettingPlayer => ({
+  id, stack, streetContribution, totalContribution: streetContribution, folded: false,
+});
+
+test('posts short blinds and completes a check-through street in order', () => {
+  const shortBlind = postBlind(player('sb', 3), 5);
+  assert.deepEqual(shortBlind, { id: 'sb', stack: 0, streetContribution: 3, totalContribution: 3, folded: false });
+  let round = createBettingRound([player('a'), player('b'), player('c')], 'a', 10);
+  assert.equal(getLegalActions(round).canCheck, true);
+  round = applyBettingAction(round, 'a', { type: 'check' });
+  assert.equal(round.actorId, 'b');
+  round = applyBettingAction(round, 'b', { type: 'check' });
+  round = applyBettingAction(round, 'c', { type: 'check' });
+  assert.equal(round.complete, true);
+});
+
+test('enforces call, minimum raise, and returns action after a full raise', () => {
+  let round = createBettingRound([player('a'), player('b'), player('c')], 'a', 10);
+  round = applyBettingAction(round, 'a', { type: 'bet', to: 10 });
+  assert.equal(round.actorId, 'b');
+  assert.equal(getLegalActions(round).callAmount, 10);
+  assert.throws(() => applyBettingAction(round, 'b', { type: 'raise', to: 15 }), /minimum raise/);
+  round = applyBettingAction(round, 'b', { type: 'raise', to: 20 });
+  assert.equal(round.minRaise, 10);
+  assert.equal(round.actorId, 'c');
+  round = applyBettingAction(round, 'c', { type: 'call' });
+  assert.equal(round.actorId, 'a');
+  round = applyBettingAction(round, 'a', { type: 'call' });
+  assert.equal(round.complete, true);
+  assert.deepEqual(round.players.map((p) => [p.id, p.stack, p.streetContribution]), [['a', 80, 20], ['b', 80, 20], ['c', 80, 20]]);
+});
+
+test('allows a short all-in raise without reopening raises for players who acted', () => {
+  let round = createBettingRound([player('a', 100), player('b', 14), player('c', 100)], 'a', 10);
+  round = applyBettingAction(round, 'a', { type: 'bet', to: 10 });
+  round = applyBettingAction(round, 'b', { type: 'all-in' });
+  assert.equal(round.currentBet, 14);
+  assert.equal(round.actorId, 'c');
+  round = applyBettingAction(round, 'c', { type: 'call' });
+  assert.equal(round.actorId, 'a');
+  assert.equal(getLegalActions(round, 'a').canRaise, false);
+  assert.throws(() => applyBettingAction(round, 'a', { type: 'raise', to: 30 }), /not currently allowed/);
+  round = applyBettingAction(round, 'a', { type: 'call' });
+  assert.equal(round.complete, true);
+  assert.equal(round.players.find((p) => p.id === 'b')?.totalContribution, 14);
+});
+
+test('ends the hand when all opponents fold', () => {
+  let round = createBettingRound([player('a'), player('b'), player('c')], 'a', 10);
+  round = applyBettingAction(round, 'a', { type: 'bet', to: 10 });
+  round = applyBettingAction(round, 'b', { type: 'fold' });
+  round = applyBettingAction(round, 'c', { type: 'fold' });
+  assert.equal(round.complete, true);
+  assert.equal(round.actorId, null);
 });
