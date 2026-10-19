@@ -311,9 +311,10 @@ function render(): void {
   tableCard.append(panelHeader);
 
   const felt = node('div', 'felt');
+  const largestStack = Math.max(1, ...(view.hand?.players.map((player) => player.stack) ?? []));
   const opponents = node('div', 'opponent-seats');
   for (const opponent of (view.hand?.players ?? []).filter((player) => player.id !== humanId)) {
-    opponents.append(renderSeat(playerLabel(opponent.id), opponent, opponent.id === round?.actorId, false, table.buttonPlayerId === opponent.id, Boolean(opponent.holeCards)));
+    opponents.append(renderSeat(playerLabel(opponent.id), opponent, opponent.id === round?.actorId, false, table.buttonPlayerId === opponent.id, Boolean(opponent.holeCards), opponent.stack / largestStack));
   }
   felt.append(opponents);
 
@@ -329,7 +330,7 @@ function render(): void {
   felt.append(center);
 
   const human = view.hand?.players.find((player) => player.id === humanId);
-  felt.append(renderSeat(playerName, human, isHumanTurn, true, table.buttonPlayerId === humanId));
+  felt.append(renderSeat(playerName, human, isHumanTurn, true, table.buttonPlayerId === humanId, false, (human?.stack ?? 0) / largestStack));
   tableCard.append(felt);
 
   const noticeBar = node('div', 'notice-bar');
@@ -433,10 +434,13 @@ function render(): void {
       range.value = range.min;
       range.setAttribute('aria-label', 'ベットまたはレイズ額');
       const amount = node('output', 'wager-amount', formatChips(Number(range.value)));
-      range.addEventListener('input', () => { amount.textContent = formatChips(Number(range.value)); });
+      const updateWager = (): void => {
+        amount.textContent = formatChips(Number(range.value));
+        wagerButton.textContent = `${round!.currentBet === 0 ? 'ベット' : 'レイズ'} ${formatChips(Number(range.value))}`;
+      };
+      range.addEventListener('input', updateWager);
       const wagerButton = node('button', 'action-button primary-action', `${round!.currentBet === 0 ? 'ベット' : 'レイズ'} ${amount.textContent}`);
       wagerButton.type = 'button';
-      range.addEventListener('input', () => { wagerButton.textContent = `${round!.currentBet === 0 ? 'ベット' : 'レイズ'} ${formatChips(Number(range.value))}`; });
       wagerButton.disabled = aiThinking;
       wagerButton.addEventListener('click', () => {
         const target = Number(range.value);
@@ -444,7 +448,31 @@ function render(): void {
           ? { type: 'all-in' }
           : { type: round!.currentBet === 0 ? 'bet' : 'raise', to: target });
       });
-      wager.append(amount, range, wagerButton);
+      const presets = node('div', 'wager-presets');
+      const setPreset = (target: number): void => {
+        const min = Number(range.min);
+        const max = Number(range.max);
+        range.value = String(Math.max(min, Math.min(max, target)));
+        range.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      const pot = view.hand?.pot ?? 0;
+      const amountToMatch = round!.currentBet === 0 ? 0 : legal.callAmount;
+      const potAfterCall = pot + amountToMatch;
+      const potTarget = (fraction: number): number => round!.currentBet === 0
+        ? Math.floor(pot * fraction)
+        : round!.currentBet + Math.floor(potAfterCall * fraction);
+      for (const preset of [
+        { label: '最小', target: Number(range.min) },
+        { label: '1/2ポット', target: potTarget(0.5) },
+        { label: 'ポット', target: potTarget(1) },
+      ]) {
+        const presetButton = node('button', 'wager-preset', preset.label);
+        presetButton.type = 'button';
+        presetButton.setAttribute('aria-label', `${preset.label}サイズを選択`);
+        presetButton.addEventListener('click', () => setPreset(preset.target));
+        presets.append(presetButton);
+      }
+      wager.append(amount, range, presets, wagerButton);
       actions.append(wager);
     }
     const canMoveAllIn = legal.canRaise || me.stack <= legal.callAmount;
@@ -531,12 +559,18 @@ function render(): void {
   app!.replaceChildren(shell);
 }
 
-function renderSeat(name: string, seat: { id: string; stack: number; folded: boolean; holeCards: readonly [Card, Card] | null; streetContribution: number } | undefined, active: boolean, showCards: boolean, isDealer: boolean, revealOpponentCards = false): HTMLElement {
+function renderSeat(name: string, seat: { id: string; stack: number; folded: boolean; holeCards: readonly [Card, Card] | null; streetContribution: number } | undefined, active: boolean, showCards: boolean, isDealer: boolean, revealOpponentCards = false, stackRatio = 1): HTMLElement {
   const card = node('div', `player-seat${active ? ' active-seat' : ''}${seat?.folded ? ' folded-seat' : ''}${showCards ? ' human-seat' : ''}`);
   const avatar = node('span', 'avatar', showCards ? 'YOU' : 'AI');
   const details = node('div', 'seat-details');
   details.append(node('strong', '', name));
   details.append(node('span', 'seat-stack', `${formatChips(seat?.stack ?? 0)} チップ`));
+  const stackMeter = node('span', 'stack-meter');
+  stackMeter.setAttribute('aria-hidden', 'true');
+  const stackFill = node('span', 'stack-meter-fill');
+  stackFill.style.width = `${Math.max(0, Math.min(1, stackRatio)) * 100}%`;
+  stackMeter.append(stackFill);
+  details.append(stackMeter);
   if (seat && seat.streetContribution > 0) details.append(node('span', 'seat-bet', `ベット ${formatChips(seat.streetContribution)}`));
   card.append(avatar, details);
   if (isDealer) card.append(node('span', 'dealer-button', 'D'));

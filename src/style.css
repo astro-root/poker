@@ -55,6 +55,8 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .seat-details { display: grid; gap: 3px; min-width: 0; }
 .seat-details strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .seat-stack { color: #d5e1da; font-size: 10px; }
+.stack-meter { display: block; width: min(100%, 110px); height: 4px; overflow: hidden; border-radius: 999px; background: #ffffff2b; }
+.stack-meter-fill { display: block; height: 100%; border-radius: inherit; background: #e2bd72; transition: width .2s ease; }
 .seat-bet { color: #f0d18c; font-size: 10px; }
 .hole-cards { margin-left: auto; }
 .playing-card { display: flex; width: 39px; height: 54px; flex-direction: column; align-items: center; justify-content: center; border: 1px solid #e8e8e1; border-radius: 5px; background: #fbfaf5; box-shadow: 0 2px 4px #00170d38; color: #1f2b26; }
@@ -111,7 +113,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .action-button { min-height: 43px; border: 1px solid transparent; border-radius: 9px; padding: 10px 13px; font-size: 11px; font-weight: 600; transition: transform .12s, background .12s; }
 .action-button:not(:disabled):active { transform: translateY(1px); }
-.action-button:focus-visible, .wager-range:focus-visible, .glossary summary:focus-visible { outline: 3px solid #c89c50; outline-offset: 3px; }
+.action-button:focus-visible, .wager-range:focus-visible, .wager-preset:focus-visible, .glossary summary:focus-visible { outline: 3px solid #c89c50; outline-offset: 3px; }
 .primary-action { background: var(--green); color: white; }
 .primary-action:hover:not(:disabled) { background: #0e372d; }
 .secondary-action { border-color: #cddbd0; background: #edf3ee; color: #244c3c; }
@@ -121,6 +123,9 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .wager-control { display: grid; grid-column: 1 / -1; grid-template-columns: auto 1fr; align-items: center; gap: 7px 12px; }
 .wager-amount { color: #405b4c; font-family: 'DM Mono', monospace; font-size: 11px; }
 .wager-range { width: 100%; accent-color: var(--green); }
+.wager-presets { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.wager-preset { min-height: 35px; border: 1px solid #dce5dd; border-radius: 7px; background: #f5f8f4; color: #496553; font-size: 10px; }
+.wager-preset:hover { background: #eaf1e9; }
 .wager-control .action-button { grid-column: 1 / -1; }
 .action-hint { margin: 11px 0 0; color: #89938b; font-size: 10px; line-height: 1.6; }
 .pot-odds { margin: 9px 0 0; color: #355744; font-size: 11px; font-weight: 700; }
