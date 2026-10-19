@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createDeck, deal, shuffle, type Card } from '../src/poker/cards.ts';
 import { compareHands, evaluateHand } from '../src/poker/evaluator.ts';
 import { buildPots, splitPot } from '../src/poker/pots.ts';
-import { applyBettingAction, createBettingRound, getLegalActions, postBlind, type BettingPlayer } from '../src/poker/betting.ts';
+import { applyBettingAction, createBettingRound, getLegalActions, postBlind, type BettingAction, type BettingPlayer } from '../src/poker/betting.ts';
 import { resolveShowdown } from '../src/poker/showdown.ts';
 import { applyHandAction, getHandPot, getPublicHandView, startHand } from '../src/poker/hand.ts';
 import { applyTableAction, createTable, getPublicTableView, startNextHand } from '../src/poker/table.ts';
@@ -92,6 +92,20 @@ test('enforces call, minimum raise, and returns action after a full raise', () =
   round = applyBettingAction(round, 'a', { type: 'call' });
   assert.equal(round.complete, true);
   assert.deepEqual(round.players.map((p) => [p.id, p.stack, p.streetContribution]), [['a', 80, 20], ['b', 80, 20], ['c', 80, 20]]);
+});
+
+test('rejects every malformed or unknown betting action without advancing the round', () => {
+  const invalidActions: unknown[] = [undefined, null, 'call', 42, {}, { type: 'bogus' }, { type: 'CALL' },
+    { type: 'raise' }, { type: 'raise', to: '30' }, { type: 'raise', to: 30.5 },
+    { type: 'raise', to: Number.NaN }, { type: 'raise', to: Number.POSITIVE_INFINITY }, { type: 'raise', to: -5 }];
+  for (const invalidAction of invalidActions) {
+    const round = createBettingRound([player('a'), player('b'), player('c')], 'a', 10);
+    assert.throws(() => applyBettingAction(round, 'a', invalidAction as BettingAction),
+      `expected rejection for ${String(JSON.stringify(invalidAction))}`);
+    assert.equal(round.actorId, 'a');
+    assert.deepEqual(round.players.map((entry) => [entry.id, entry.stack, entry.totalContribution]),
+      [['a', 100, 0], ['b', 100, 0], ['c', 100, 0]]);
+  }
 });
 
 test('allows a short all-in raise without reopening raises for players who acted', () => {

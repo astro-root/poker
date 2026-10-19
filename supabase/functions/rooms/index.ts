@@ -25,6 +25,31 @@ function cleanName(value: unknown): string {
   return value.trim().slice(0, 20) || 'プレイヤー';
 }
 
+function parseAction(value: unknown): BettingAction {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid poker action');
+  const type = (value as { type?: unknown }).type;
+  switch (type) {
+    case 'fold':
+    case 'check':
+    case 'call':
+    case 'all-in':
+      return { type };
+    case 'bet':
+    case 'raise': {
+      const to = (value as { to?: unknown }).to;
+      if (!Number.isSafeInteger(to)) throw new Error('Invalid poker action');
+      return { type, to: to as number };
+    }
+    default:
+      throw new Error('Invalid poker action');
+  }
+}
+
+function parseExpectedVersion(value: unknown): number {
+  if (!Number.isSafeInteger(value)) throw new Error('Invalid expected version');
+  return value as number;
+}
+
 async function supabaseRequest<T>(url: string, key: string, path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set('apikey', key);
@@ -185,14 +210,16 @@ Deno.serve(async (request: Request) => {
       const table = row.state.table;
       if (row.status !== 'playing' || !table?.hand?.bettingRound) return response({ ok: false, error: '現在は操作できません。' }, 409);
       if (table.hand.bettingRound.actorId !== userId) return response({ ok: false, error: 'まだあなたの番ではありません。' }, 409);
-      const pokerAction = body.pokerAction as BettingAction;
-      const nextTable = applyTableAction(table, Number(body.expectedVersion), userId, pokerAction);
+      const pokerAction = parseAction(body.pokerAction);
+      const expectedVersion = parseExpectedVersion(body.expectedVersion);
+      const nextTable = applyTableAction(table, expectedVersion, userId, pokerAction);
       nextState = { ...row.state, table: nextTable, notice: `${row.state.members.find((member) => member.id === userId)?.name ?? 'プレイヤー'}がアクションしました。` };
     } else if (action === 'next-hand') {
       if (row.host_user_id !== userId) return response({ ok: false, error: '次のハンドを開始できるのはホストです。' }, 403);
       if (row.status !== 'playing' || !row.state.table) return response({ ok: false, error: '現在は次のハンドを開始できません。' }, 409);
       const table = row.state.table;
-      if (Number(body.expectedVersion) !== table.version) return response({ ok: false, error: '画面が更新されています。状態を更新してください。' }, 409);
+      const expectedVersion = parseExpectedVersion(body.expectedVersion);
+      if (expectedVersion !== table.version) return response({ ok: false, error: '画面が更新されています。状態を更新してください。' }, 409);
       const nextTable = startNextHand(table);
       nextState = { ...row.state, table: nextTable, notice: '次のハンドが始まりました。' };
     } else return response({ ok: false, error: '操作が正しくありません。' }, 400);

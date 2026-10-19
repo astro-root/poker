@@ -91,6 +91,29 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
     assert.ok(state.room.table.hand.players.find((player) => player.id === 'guest-user')?.holeCards instanceof Array);
     assert.equal(state.room.table.hand.players.find((player) => player.id === 'host-user')?.holeCards, null);
 
+    const table = rooms.get(roomId)!.state.table as { version: number; hand: { bettingRound: { actorId: string } } };
+    const actorToken = table.hand.bettingRound.actorId === 'host-user' ? 'host' : 'guest';
+    const invalidActions: unknown[] = [undefined, null, 'call', 42, {}, { type: 'bogus' }, { type: 'CALL' },
+      { type: 'raise' }, { type: 'raise', to: '30' }, { type: 'raise', to: 30.5 },
+      { type: 'raise', to: Number.NaN }, { type: 'raise', to: Number.POSITIVE_INFINITY }, { type: 'raise', to: -5 }];
+    for (const pokerAction of invalidActions) {
+      const revision = rooms.get(roomId)!.revision;
+      const snapshot = JSON.stringify(rooms.get(roomId)!.state.table);
+      const invalidResponse = await call(actorToken, { action: 'action', roomId, expectedVersion: table.version, pokerAction });
+      assert.equal(invalidResponse.status, 400, `invalid action should be rejected: ${String(JSON.stringify(pokerAction))}`);
+      assert.equal(rooms.get(roomId)!.revision, revision);
+      assert.equal(JSON.stringify(rooms.get(roomId)!.state.table), snapshot);
+    }
+    const invalidVersions: unknown[] = [undefined, null, '2', 1.5, Number.NaN, Number.POSITIVE_INFINITY];
+    for (const expectedVersion of invalidVersions) {
+      const revision = rooms.get(roomId)!.revision;
+      const snapshot = JSON.stringify(rooms.get(roomId)!.state.table);
+      const invalidResponse = await call(actorToken, { action: 'action', roomId, expectedVersion, pokerAction: { type: 'call' } });
+      assert.equal(invalidResponse.status, 400, `invalid version should be rejected: ${String(expectedVersion)}`);
+      assert.equal(rooms.get(roomId)!.revision, revision);
+      assert.equal(JSON.stringify(rooms.get(roomId)!.state.table), snapshot);
+    }
+
     assert.ok(requests.some((request) => request.method === 'PATCH' && request.url.includes('revision=eq.0')));
     assert.ok(requests.some((request) => request.method === 'PATCH' && request.url.includes('revision=eq.1')));
   } finally {

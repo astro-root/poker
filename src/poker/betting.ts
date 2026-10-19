@@ -201,6 +201,10 @@ export function applyBettingAction(round: BettingRound, playerId: string, action
       commitTo(target);
       break;
     }
+    default: {
+      const exhaustiveCheck: never = action;
+      throw new Error(`Unknown betting action: ${String(exhaustiveCheck)}`);
+    }
   }
 
   const players = round.players.map((player, playerIndex) => playerIndex === index ? updated : { ...player });
