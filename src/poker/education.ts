@@ -3,6 +3,16 @@ import { HAND_NAMES, type EvaluatedHand, type HandCategory } from './evaluator.t
 
 export type PokerGlossaryEntry = Readonly<{ term: string; explanation: string; example: string }>;
 
+/** Break-even win probability for a call, ignoring ties and any future betting. */
+export function getCallBreakEvenProbability(pot: number, callAmount: number): number {
+  if (!Number.isSafeInteger(pot) || pot < 0 || !Number.isSafeInteger(callAmount) || callAmount < 0) {
+    throw new RangeError('Pot and call amount must be non-negative safe integers');
+  }
+  const finalPot = pot + callAmount;
+  if (!Number.isSafeInteger(finalPot)) throw new RangeError('Final pot exceeds the safe integer range');
+  return finalPot === 0 ? 0 : callAmount / finalPot;
+}
+
 export const POKER_GLOSSARY: readonly PokerGlossaryEntry[] = [
   { term: 'プリフロップ', explanation: '共通カードがまだ出ていない最初のベッティングラウンドです。', example: '手札2枚を受け取ったあと、フロップが出る前に行動します。' },
   { term: 'フロップ', explanation: 'テーブル中央に最初に公開される3枚の共通カードです。', example: '自分の手札2枚と合わせ、役の可能性を考えます。' },

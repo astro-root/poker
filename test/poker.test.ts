@@ -9,7 +9,7 @@ import { applyHandAction, getHandPot, getPublicHandView, startHand } from '../sr
 import { applyTableAction, createTable, getPublicTableView, startNextHand } from '../src/poker/table.ts';
 import { createGuestCredential, createRoom, finishRoomGame, joinRoom, leaveRoom, listPublicRooms, startRoomGame, verifyGuestSession } from '../src/poker/rooms.ts';
 import { applyAiTurn, chooseAiAction, estimateAiHandStrength } from '../src/poker/ai.ts';
-import { explainHand, findGlossaryEntry } from '../src/poker/education.ts';
+import { explainHand, findGlossaryEntry, getCallBreakEvenProbability } from '../src/poker/education.ts';
 
 const c = (rank: Card['rank'], suit: Card['suit']): Card => ({ rank, suit });
 
@@ -318,4 +318,12 @@ test('explains the current five-card hand and exposes beginner glossary entries'
   assert.match(explanation.reason, /最も強い/);
   assert.equal(findGlossaryEntry('サイドポット')?.term, 'サイドポット');
   assert.equal(findGlossaryEntry('存在しない用語'), undefined);
+});
+
+test('calculates a simple break-even call probability and rejects invalid chip values', () => {
+  assert.equal(getCallBreakEvenProbability(80, 20), 0.2);
+  assert.equal(getCallBreakEvenProbability(20, 20), 0.5);
+  assert.equal(getCallBreakEvenProbability(0, 0), 0);
+  assert.throws(() => getCallBreakEvenProbability(-1, 10), /non-negative/);
+  assert.throws(() => getCallBreakEvenProbability(Number.MAX_SAFE_INTEGER, 1), /safe integer/);
 });

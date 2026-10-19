@@ -4,7 +4,7 @@ import { chooseAiAction } from './poker/ai.ts';
 import { getHandPot } from './poker/hand.ts';
 import { getLegalActions, type BettingAction } from './poker/betting.ts';
 import { evaluateHand } from './poker/evaluator.ts';
-import { explainHand, POKER_GLOSSARY } from './poker/education.ts';
+import { explainHand, getCallBreakEvenProbability, POKER_GLOSSARY } from './poker/education.ts';
 import './style.css';
 
 const humanId = globalThis.crypto.randomUUID();
@@ -375,6 +375,13 @@ function render(): void {
     actionPanel.append(actions);
     const callInfo = legal.callAmount ? `コールに必要なチップ: ${formatChips(legal.callAmount)}` : '追加ベットがなければチェックできます。';
     actionPanel.append(node('p', 'action-hint', `${callInfo} · ポット ${formatChips(view.hand?.pot ?? 0)} チップ${legal.canRaise ? ` · 最小${round!.currentBet === 0 ? 'ベット' : 'レイズ'} ${formatChips(legal.minRaiseTo)}` : ''}`));
+    if (legal.callAmount > 0) {
+      const pot = view.hand?.pot ?? 0;
+      const threshold = getCallBreakEvenProbability(pot, legal.callAmount);
+      const percent = (threshold * 100).toLocaleString('ja-JP', { maximumFractionDigits: 1 });
+      actionPanel.append(node('p', 'pot-odds', `単純計算の必要勝率の目安: ${percent}%`));
+      actionPanel.append(node('p', 'action-guidance', 'コールした場合に損益が分かれる目安です。引き分けや次のストリートのベット、実際の勝率は含みません。'));
+    }
     const callRequired = round!.currentBet - me.streetContribution;
     const guidance = legal.canCheck
       ? 'チェックはチップを追加せずに順番を進めます。誰かがベットすると、次の番ではコールかフォールドを選びます。'
