@@ -458,10 +458,14 @@ function render(): void {
   const losses = recordedStats.filter((item) => item.outcome === 'loss').length;
   const draws = recordedStats.filter((item) => item.outcome === 'draw').length;
   const netChips = recordedStats.reduce((sum, item) => sum + (item.chipsChange ?? 0), 0);
+  const winRate = recordedStats.length ? wins / recordedStats.length : null;
+  const averageChange = recordedStats.length ? netChips / recordedStats.length : null;
   const stats = node('section', 'practice-stats');
-  stats.append(node('h2', '', `練習戦績 · 直近${recordedStats.length}ハンド`));
+  stats.append(node('h2', '', `練習戦績 · 直近10ハンド中${recordedStats.length}ハンドを集計`));
   stats.append(node('p', '', `勝ち ${wins} · 負け ${losses} · 引き分け ${draws}`));
+  stats.append(node('p', '', `勝率 ${winRate === null ? '—' : `${(winRate * 100).toLocaleString('ja-JP', { maximumFractionDigits: 1 })}%`}`));
   stats.append(node('p', '', `チップ増減 ${netChips > 0 ? '+' : ''}${formatChips(netChips)}`));
+  stats.append(node('p', '', `1ハンド平均 ${averageChange === null ? '—' : `${averageChange > 0 ? '+' : ''}${new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 1 }).format(averageChange)}`} チップ`));
   archive.append(stats);
   if (recentHands.length === 0) {
     archive.append(node('p', 'archive-empty', 'ハンドが終了すると、ここに結果が保存されます。'));

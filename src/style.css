@@ -78,8 +78,8 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .recent-hands { margin-top: 18px; border-top: 1px solid #dedfd7; }
 .recent-hands > summary { width: fit-content; padding: 14px 2px; color: #536c5e; cursor: pointer; font-size: 11px; font-weight: 600; }
 .archive-list { display: grid; gap: 7px; }
-.practice-stats { margin: 0 10px 10px; padding: 12px; border-radius: 9px; background: #f0f5f0; }
-.practice-stats h2 { margin: 0 0 7px; color: #355744; font-size: 11px; }
+.practice-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; margin: 0 10px 10px; padding: 12px; border-radius: 9px; background: #f0f5f0; }
+.practice-stats h2 { grid-column: 1 / -1; margin: 0 0 4px; color: #355744; font-size: 11px; }
 .practice-stats p { margin: 3px 0 0; color: #627168; font-size: 10px; }
 .archive-entry { border: 1px solid #e2e4dc; border-radius: 9px; background: white; }
 .archive-entry summary { padding: 11px 13px; color: #52665a; cursor: pointer; font-size: 10px; line-height: 1.6; }
