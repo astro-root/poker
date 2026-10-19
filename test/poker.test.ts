@@ -4,6 +4,7 @@ import { createDeck, deal, shuffle, type Card } from '../src/poker/cards.ts';
 import { compareHands, evaluateHand } from '../src/poker/evaluator.ts';
 import { buildPots, splitPot } from '../src/poker/pots.ts';
 import { applyBettingAction, createBettingRound, getLegalActions, postBlind, type BettingPlayer } from '../src/poker/betting.ts';
+import { resolveShowdown } from '../src/poker/showdown.ts';
 
 const c = (rank: Card['rank'], suit: Card['suit']): Card => ({ rank, suit });
 
@@ -103,4 +104,24 @@ test('ends the hand when all opponents fold', () => {
   round = applyBettingAction(round, 'c', { type: 'fold' });
   assert.equal(round.complete, true);
   assert.equal(round.actorId, null);
+});
+
+test('settles main and side pots using eligible hands and returns every chip', () => {
+  const board = [c(2,'clubs'), c(4,'diamonds'), c(6,'hearts'), c(8,'spades'), c(10,'clubs')];
+  const result = resolveShowdown([
+    { playerId: 'a', amount: 100, folded: false, holeCards: [c(13,'hearts'), c(13,'spades')] },
+    { playerId: 'b', amount: 60, folded: false, holeCards: [c(14,'hearts'), c(14,'spades')] },
+    { playerId: 'c', amount: 100, folded: true, holeCards: [c(12,'hearts'), c(12,'spades')] },
+  ], board, 'a');
+  assert.equal(result.totalPot, 260);
+  assert.deepEqual(result.payouts, { a: 80, b: 180, c: 0 });
+  assert.deepEqual(result.pots.map((pot) => pot.winnerIds), [['b'], ['a']]);
+  assert.equal(result.hands.c, undefined);
+});
+
+test('rejects a duplicate card across players or the board at showdown', () => {
+  assert.throws(() => resolveShowdown([
+    { playerId: 'a', amount: 1, folded: false, holeCards: [c(14,'clubs'), c(13,'clubs')] },
+    { playerId: 'b', amount: 1, folded: false, holeCards: [c(14,'clubs'), c(12,'clubs')] },
+  ], [c(2,'clubs'),c(3,'clubs'),c(4,'clubs'),c(5,'clubs'),c(6,'clubs')], 'a'), /Duplicate card/);
 });

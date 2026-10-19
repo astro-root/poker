@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Free online Texas Hold'em game",
   "scripts": {
-    "test": "node --experimental-strip-types --test",
+    "test": "node --experimental-strip-types test/poker.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {

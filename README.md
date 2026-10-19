@@ -1,33 +1,53 @@
-# Poker
+# ポーカー
 
-Free online Texas Hold'em service. The repository started with only `develop-prompt.md`; no existing application, framework, tests, or deployment configuration was present.
+無料で遊べるオンライン・テキサスホールデムサービスを開発しています。開始時点のリポジトリには `develop-prompt.md` 以外のアプリ、フレームワーク、テスト、デプロイ設定はありませんでした。
 
-## Current implementation
+## 現在の実装
 
-The first foundation is a dependency-light TypeScript poker core: a 52-card deck, cryptographically shuffled cards, five-to-seven-card hand evaluation, tie comparison, side-pot construction, deterministic odd-chip splitting, and betting-round transitions for blinds, calls, bets, raises, short all-ins, and folds. Game state and decisions must remain server authoritative as online features are added.
+- 52枚のカードデッキ、暗号学的乱数によるシャッフル
+- 5〜7枚からの役判定と同役時の比較
+- メインポット／サイドポットの組み立てと端数チップ分配
+- ブラインド、チェック、コール、ベット、レイズ、短いオールイン、フォールドを扱うベッティングラウンド
+- ショーダウン時に各ポットの対象者から勝者を選び、チップを分配
 
-## Development plan
+ゲーム状態と勝敗の決定はサーバー側を正とします。
 
-1. **Poker rules core:** finish hand flow, blinds, betting streets, showdown, and pot awards with focused tests.
-2. **Playable table:** add a Next.js responsive UI and connect it to the deterministic game model.
-3. **Guest rooms:** add secure guest sessions, invite rooms, server-authoritative room state, and reconnect support.
-4. **Vercel realtime:** add a WebSocket endpoint and Redis-backed room coordination, then verify multi-instance delivery and recovery.
-5. **Public rooms and AI:** allow discovery and rule-based opponents.
-6. **Learning support:** show current hand explanations, glossary, and legal-action guidance.
-7. **Spectating and statistics:** publish only sanitized public state and persist clearly defined results.
-8. **Release readiness:** document deployment, test multi-client flows, and review security and hosting limits.
+## 開発計画
 
-### Vercel technology direction
+1. **ポーカールール**：ブラインド位置、各ストリート、ハンド全体の進行、ショーダウンまでを接続して検証する。
+2. **対戦画面**：Next.js でスマートフォンとPCに対応した画面を作り、ゲームモデルにつなぐ。
+3. **ゲストとルーム**：ゲスト識別、招待ルーム、権限確認、再接続を実装する。
+4. **オンライン同期**：サーバーでアクションを検証し、複数クライアントへ公開可能な状態だけを配信する。
+5. **公開ルームとAI**：公開ルームの検索・参加とルールベースAIを追加する。
+6. **初心者向け支援**：現在の役の説明、用語集、選択可能なアクションの案内を追加する。
+7. **観戦と戦績**：非公開カードを除いた観戦状態と、定義を明示した戦績を追加する。
+8. **公開準備**：複数クライアントで検証し、セキュリティ、無料枠、運用手順を確認する。
 
-With no existing stack to preserve and Vercel as the target, use Next.js/React for the app and Vercel Functions for server endpoints. Keep the poker core independent of the UI and transport. Vercel currently supports WebSockets on Functions, but each connection is pinned only for that Function's lifetime; reconnects can land on another instance. Therefore room state and cross-instance fan-out must use shared infrastructure, not process memory. Redis is the current direction for atomic room state and pub/sub; the exact provider and plan need to be checked against expected traffic and budget before provisioning. Connections must reconnect when the function closes them at its configured duration. See [Vercel's WebSocket guidance](https://vercel.com/kb/guide/do-vercel-serverless-functions-support-websocket-connections) and [Function duration limits](https://vercel.com/docs/functions/limitations).
+## 技術方針
 
-The rules package currently has **no runtime library dependencies**. Node's built-in `crypto` supplies secure shuffle randomness and Node's built-in test runner runs tests. TypeScript and `@types/node` are development-only dependencies for static type checking. The application will necessarily add Next.js and React; realtime work is likely to add a Redis client and Vercel's WebSocket adapter. The adapter API is currently experimental, so keep it behind a small transport boundary. Avoid adding a poker/rules package, UI component library, or validation library unless implementation needs justify it; input validation can begin with explicit typed guards. The initial package requires Node 22.6 or newer for native TypeScript stripping.
+### Vercel と Supabase
 
-## Commands
+デプロイ先は Vercel を想定し、画面とサーバーAPIに Next.js を使う方針です。データベースとオンライン同期には **Supabase を第一候補**にします。Supabase は Postgres、Realtime の Broadcast／Presence、ゲスト認証を一つのサービスにまとめられるため、現段階では Redis を別に組み合わせるより運用部品を減らせます。
 
-- `npm test` — run the poker core tests.
-- `npm run typecheck` — type-check when development dependencies are installed.
+対戦アクションは Vercel のサーバーAPIで検証し、Postgres のトランザクション内でルーム状態とバージョンを更新する設計にします。クライアントから届いたカード、残高、勝敗は信用しません。Realtime は更新通知に使い、クライアント同士でゲーム状態を直接決めさせません。非公開手札は権限を持つ本人にだけ返し、観戦者向け・ルーム全体向けの配信データから除きます。再接続後はDBの最新状態を取り直します。
 
-## Known limits
+Supabase Realtime はチャンネル単位の Broadcast と Presence を提供します。Presence はオンライン表示など低頻度の状態に使い、ゲーム中の手札や権威あるゲーム状態の保存には使いません。[Realtime の仕組み](https://supabase.com/docs/guides/realtime/architecture) と[認可設定](https://supabase.com/docs/guides/realtime/authorization)を確認し、チャンネルとDBの権限を設計します。
 
-This is not yet a playable online service. The current betting module models one street and expects the caller to supply the correct first actor and minimum bet; full hand progression, room/session security, persistence, UI, AI, and deployment remain future work. The side-pot helper expects one total contribution per player per hand; odd-chip order is supplied by the caller (the game engine must define it relative to the dealer button).
+無料枠には上限があります。現行の公式表では Free プランの Realtime は同時接続200、毎秒100メッセージが上限として示されています。公開前に最新のプラン上限と利用量を再確認します。[Supabase Realtime の上限](https://supabase.com/docs/guides/realtime/limits)
+
+Vercel Functions の WebSocket も利用可能になっていますが、Function の実行時間で接続が終了し、再接続先が別インスタンスになることがあります。Supabase Realtime を採用する場合、アプリ独自の WebSocket サーバーはまず作らず、Vercel Functions は短いリクエスト処理に使います。[Vercel の WebSocket ガイド](https://vercel.com/kb/guide/do-vercel-serverless-functions-support-websocket-connections)
+
+### ライブラリ
+
+ポーカールールコアの実行時依存は現在ありません。Node.js 標準の `crypto` とテストランナーを使っています。TypeScript と `@types/node` は開発用です。画面の実装時には Next.js と React、Supabase 接続時には Supabase の公式 JavaScript クライアントを追加する予定です。現段階ではポーカー判定やUIコンポーネント用の外部ライブラリは追加しません。
+
+現在のテスト実行には Node.js 22.6 以降が必要です。
+
+## コマンド
+
+- `npm test` — ルールコアのテストを実行
+- `npm run typecheck` — 開発依存をインストールした状態で型を確認
+
+## 現在の制約
+
+まだ遊べるオンラインサービスではありません。ベッティングモジュールは1ストリート分の処理で、呼び出し側がアクション順と最低ベットを渡します。ハンド全体の進行、ルーム／ゲスト認証、永続化、UI、AI、デプロイは未実装です。ショーダウン処理には5枚のボードが必要です。奇数チップはディーラーボタンの次から時計回りに配分します。
