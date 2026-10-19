@@ -9,8 +9,9 @@ declare const Deno: {
 
 type Member = Readonly<{ id: string; name: string; lastSeenAt?: number; sittingOut?: boolean }>;
 type RoomTableState = TableState & Readonly<{ turnDeadline?: number | null }>;
-type RoomState = Readonly<{ members: readonly Member[]; notice: string; table: RoomTableState | null }>;
-type RoomRow = Readonly<{ id: string; host_user_id: string; status: 'waiting' | 'playing'; revision: number; state: RoomState }>;
+type RoomState = Readonly<{ members: readonly Member[]; notice: string; table: RoomTableState | null; winnerId?: string }>;
+type RoomStatus = 'waiting' | 'playing' | 'finished';
+type RoomRow = Readonly<{ id: string; host_user_id: string; status: RoomStatus; revision: number; state: RoomState }>;
 
 const TURN_TIMEOUT_MS = 45_000;
 const PRESENCE_TIMEOUT_MS = 15_000;
@@ -100,6 +101,15 @@ async function saveRoom(url: string, serviceKey: string, row: RoomRow, state: Ro
   return rows[0] ?? null;
 }
 
+async function cleanupExpiredRooms(url: string, serviceKey: string, now: number): Promise<void> {
+  const finishedCutoff = encodeURIComponent(new Date(now - 60 * 60 * 1_000).toISOString());
+  const roomCutoff = encodeURIComponent(new Date(now - 24 * 60 * 60 * 1_000).toISOString());
+  await supabaseRequest<unknown>(url, serviceKey,
+    `/rest/v1/poker_rooms?status=eq.finished&updated_at=lt.${finishedCutoff}`, { method: 'DELETE' });
+  await supabaseRequest<unknown>(url, serviceKey,
+    `/rest/v1/poker_rooms?status=neq.finished&updated_at=lt.${roomCutoff}`, { method: 'DELETE' });
+}
+
 function isConnected(member: Member, now: number): boolean {
   return !member.sittingOut && Number.isSafeInteger(member.lastSeenAt)
     && now - (member.lastSeenAt as number) < PRESENCE_TIMEOUT_MS;
@@ -123,6 +133,16 @@ function resolveExpiredTurn(state: RoomState, now: number): RoomState {
     table: withTurnDeadline(nextTable, now),
     notice: `${state.members.find((member) => member.id === actorId)?.name ?? 'プレイヤー'}の時間切れにより自動${action.type === 'check' ? 'チェック' : 'フォールド'}しました。`,
   };
+}
+
+function finishIfNecessary(state: RoomState, status: RoomStatus): { state: RoomState; status: RoomStatus } {
+  const table = state.table;
+  if (status !== 'playing' || table?.hand?.stage !== 'complete') return { state, status };
+  const funded = table.seats.filter((seat) => seat.stack > 0);
+  if (funded.length > 1) return { state, status };
+  const winnerId = funded[0]?.id;
+  const winnerName = state.members.find((member) => member.id === winnerId)?.name ?? 'プレイヤー';
+  return { state: { ...state, winnerId, notice: `${winnerName}の優勝です。` }, status: 'finished' };
 }
 
 function publicRoom(row: RoomRow, viewerId: string, now: number) {
@@ -149,6 +169,7 @@ function publicRoom(row: RoomRow, viewerId: string, now: number) {
     roomId: row.id,
     hostId: row.host_user_id,
     status: row.status,
+    winnerId: room.winnerId ?? null,
     version: row.state.table?.version ?? 0,
     peers: room.members.map((member) => ({ id: member.id, name: member.name, connected: isConnected(member, now) })),
     table,
@@ -184,6 +205,9 @@ Deno.serve(async (request: Request) => {
     const now = Date.now();
 
     if (action === 'create') {
+      try { await cleanupExpiredRooms(url, serviceKey, now); } catch (error) {
+        console.error('room ttl cleanup failed', error);
+      }
       const bytes = new Uint8Array(18);
       crypto.getRandomValues(bytes);
       const id = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -208,8 +232,9 @@ Deno.serve(async (request: Request) => {
     }
 
     const timedState = resolveExpiredTurn(row.state, now);
-    if (timedState !== row.state) {
-      const saved = await saveRoom(url, serviceKey, row, timedState);
+    const timedGame = finishIfNecessary(timedState, row.status);
+    if (timedState !== row.state || timedGame.status !== row.status) {
+      const saved = await saveRoom(url, serviceKey, row, timedGame.state, timedGame.status);
       if (!saved) return response({ ok: false, error: 'ルームの状態が更新されました。もう一度お試しください。' }, 409);
       row = saved;
     }
@@ -254,14 +279,17 @@ Deno.serve(async (request: Request) => {
         const folded = foldHandPlayer(table.hand, userId);
         table = withTurnDeadline({ ...table, hand: folded }, now);
       }
+      const finishedGame = finishIfNecessary({ ...row.state, members, table }, row.status);
       const nextHost = row.host_user_id === userId
         ? members.find((member) => isConnected(member, now))?.id ?? row.host_user_id
         : row.host_user_id;
-      const state: RoomState = { ...row.state, members, table, notice: `${leaver.name}が退出しました。` };
+      const state: RoomState = finishedGame.status === 'finished'
+        ? finishedGame.state
+        : { ...finishedGame.state, notice: `${leaver.name}が退出しました。` };
       const rows = await supabaseRequest<RoomRow[]>(url, serviceKey,
         `/rest/v1/poker_rooms?id=eq.${encodeURIComponent(row.id)}&revision=eq.${row.revision}&select=*`, {
           method: 'PATCH', headers: { Prefer: 'return=representation' },
-          body: JSON.stringify({ state, host_user_id: nextHost,
+          body: JSON.stringify({ state, status: finishedGame.status, host_user_id: nextHost,
             revision: row.revision + 1, updated_at: new Date().toISOString() }),
         });
       if (!rows.length) return response({ ok: false, error: 'ルームの状態が更新されました。もう一度お試しください。' }, 409);
@@ -297,7 +325,23 @@ Deno.serve(async (request: Request) => {
         throw new RoomError(422, 'そのアクションは実行できません。現在の状態を確認してください。');
       }
       nextTable = withTurnDeadline(nextTable, now);
-      nextState = { ...row.state, table: nextTable, notice: `${row.state.members.find((member) => member.id === userId)?.name ?? 'プレイヤー'}がアクションしました。` };
+      const actionState: RoomState = { ...row.state, table: nextTable, winnerId: undefined,
+        notice: `${row.state.members.find((member) => member.id === userId)?.name ?? 'プレイヤー'}がアクションしました。` };
+      const finishedGame = finishIfNecessary(actionState, row.status);
+      nextState = finishedGame.state;
+      status = finishedGame.status;
+    } else if (action === 'rematch') {
+      if (row.status !== 'finished') return response({ ok: false, error: '終了した対戦でのみリマッチできます。' }, 409);
+      const requester = row.state.members.find((member) => member.id === userId);
+      if (!requester || !isConnected(requester, now)) return response({ ok: false, error: '在席中のプレイヤーのみリマッチできます。' }, 403);
+      nextState = {
+        ...row.state,
+        members: row.state.members.map((member) => ({ ...member, sittingOut: false })),
+        table: null,
+        winnerId: undefined,
+        notice: 'リマッチできます。参加者がそろったら対戦を開始してください。',
+      };
+      status = 'waiting';
     } else if (action === 'next-hand') {
       if (row.status !== 'playing' || !row.state.table) return response({ ok: false, error: '現在は次のハンドを開始できません。' }, 409);
       const requester = row.state.members.find((member) => member.id === userId);

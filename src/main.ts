@@ -7,7 +7,7 @@ import { evaluateHand, HAND_NAMES, type HandCategory } from './poker/evaluator.t
 import { estimateEquity, type EquityEstimate } from './poker/equity.ts';
 import { explainHand, getCallBreakEvenProbability, POKER_GLOSSARY } from './poker/education.ts';
 import { initializeGuestIdentity } from './supabase/client.ts';
-import { createRoom, joinRoom, leaveRoom, leaveRoomKeepalive, nextRoomHand, readRoom, startRoom as startServerRoom, submitRoomAction, type OnlineRoom, type RoomPeer } from './supabase/online-room.ts';
+import { createRoom, joinRoom, leaveRoom, leaveRoomKeepalive, nextRoomHand, readRoom, rematchRoom, startRoom as startServerRoom, submitRoomAction, type OnlineRoom, type RoomPeer } from './supabase/online-room.ts';
 import './style.css';
 
 let humanId = '';
@@ -52,6 +52,7 @@ let appMode: AppMode = 'practice';
 let onlineRoomId = '';
 let onlineHost = false;
 let onlineStarted = false;
+let onlineWinnerId: string | null = null;
 let onlineStatus = '';
 let onlineError = '';
 let onlinePeers: RoomPeer[] = [];
@@ -275,6 +276,7 @@ async function closeOnlineSession(): Promise<void> {
   }
   onlineRoomId = '';
   onlineStarted = false;
+  onlineWinnerId = null;
   onlinePeers = [];
   onlineNames.clear();
   window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
@@ -285,6 +287,7 @@ function applyOnlineRoom(room: OnlineRoom): void {
   onlineRoomId = room.roomId;
   onlineHost = room.hostId === humanId;
   onlineStarted = room.status === 'playing';
+  onlineWinnerId = room.winnerId;
   onlinePeers = [...room.peers];
   onlineNames = new Map(room.peers.map((peer) => [peer.id, peer.name]));
   if (room.table) {
@@ -294,10 +297,12 @@ function applyOnlineRoom(room: OnlineRoom): void {
       handHistory = [];
     }
     table = room.table;
+  } else if (room.status === 'waiting') {
+    table = null;
   }
   notice = room.notice || (room.status === 'playing' ? '対戦中です。' : '参加者を待っています。');
-  onlineStatus = room.status === 'waiting' ? '招待リンクを共有して友だちを待ちます' : 'オンライン対戦中';
-  if (room.status === 'playing') appMode = 'online-playing';
+  onlineStatus = room.status === 'waiting' ? '招待リンクを共有して友だちを待ちます' : room.status === 'finished' ? '対戦終了' : 'オンライン対戦中';
+  appMode = room.status === 'waiting' ? 'online-lobby' : 'online-playing';
   render();
 }
 
@@ -852,6 +857,21 @@ function render(): void {
     } else if (result?.type === 'uncontested') {
       actionPanel.append(node('p', 'result-copy', `${playerLabel(result.winnerId)}が全員のフォールドでポット ${formatChips(result.pot)} を獲得しました。`));
     }
+    if (onlineWinnerId) {
+      actionPanel.append(node('p', 'result-copy', `${playerLabel(onlineWinnerId)}がこの対戦に優勝しました。`));
+      const rematch = node('button', 'action-button primary-action', 'リマッチする');
+      rematch.type = 'button';
+      rematch.disabled = onlinePending;
+      rematch.addEventListener('click', () => {
+        if (onlinePending) return;
+        onlinePending = true;
+        void rematchRoom(onlineRoomId).then(applyOnlineRoom).catch((error: unknown) => {
+          onlineError = error instanceof Error ? error.message : 'リマッチを開始できませんでした。';
+          render();
+        }).finally(() => { onlinePending = false; render(); });
+      });
+      actionPanel.append(rematch);
+    }
     if (result?.returned) {
       actionPanel.append(node('p', 'result-copy', `未コール分 ${formatChips(result.returned.amount)} チップを${playerLabel(result.returned.playerId)}へ返却しました。`));
     }
@@ -886,7 +906,7 @@ function render(): void {
         startGame();
       }
     });
-    actionPanel.append(nextButton);
+    if (!onlineWinnerId) actionPanel.append(nextButton);
   } else if (legal && me) {
     const actions = node('div', 'action-grid');
     actions.append(createActionButton('フォールド', { type: 'fold' }, 'fold-action', !legal.canFold || onlinePending));

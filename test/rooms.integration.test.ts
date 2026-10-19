@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createDeck } from '../src/poker/cards.ts';
+import { createTable, startNextHand } from '../src/poker/table.ts';
 
 type StoredRoom = {
   id: string;
   host_user_id: string;
-  status: 'waiting' | 'playing';
+  status: 'waiting' | 'playing' | 'finished';
   revision: number;
+  updated_at?: string;
   state: Record<string, any>;
 };
 
@@ -34,6 +37,7 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
 
     if (method === 'POST') {
       const row = JSON.parse(String(init.body)) as StoredRoom;
+      row.updated_at = new Date(now).toISOString();
       rooms.set(row.id, row);
       return reply([row], 201);
     }
@@ -48,6 +52,16 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
       return reply([row]);
     }
     if (method === 'DELETE') {
+      if (!id) {
+        const status = url.searchParams.get('status')?.replace(/^(eq|neq)\./u, '');
+        const statusOperator = url.searchParams.get('status')?.split('.')[0];
+        const cutoff = Date.parse(url.searchParams.get('updated_at')?.replace(/^lt\./u, '') ?? '');
+        for (const [roomKey, row] of rooms) {
+          const statusMatches = !status || (statusOperator === 'eq' ? row.status === status : row.status !== status);
+          if (statusMatches && Date.parse(row.updated_at ?? '') < cutoff) rooms.delete(roomKey);
+        }
+        return reply([]);
+      }
       const row = id ? rooms.get(id) : undefined;
       if (!row) return reply([]);
       rooms.delete(row.id);
@@ -207,6 +221,54 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
     const legacyResponse = await call('guest', { action: 'state', roomId });
     assert.equal(legacyResponse.status, 200, 'old room state without presence and deadline fields should still load');
     assert.equal((rooms.get(roomId)!.state.table as { turnDeadline?: number }).turnDeadline, now + 45_000);
+
+    const terminalCreate = await call('host', { action: 'create', name: '終局テスト' });
+    const terminalRoomId = (await terminalCreate.json() as { room: { roomId: string } }).room.roomId;
+    await call('guest', { action: 'join', roomId: terminalRoomId, name: '対戦者' });
+    const terminalStart = await call('host', { action: 'start', roomId: terminalRoomId });
+    assert.equal(terminalStart.status, 200);
+    const terminalTable = startNextHand(createTable([{ id: 'host-user', stack: 10 }, { id: 'guest-user', stack: 10 }], 5, 10));
+    const hand = terminalTable.hand!;
+    const hostCards = [{ rank: 14, suit: 'spades' }, { rank: 14, suit: 'hearts' }] as const;
+    const guestCards = [{ rank: 13, suit: 'spades' }, { rank: 13, suit: 'hearts' }] as const;
+    const board = [
+      { rank: 2, suit: 'clubs' }, { rank: 3, suit: 'diamonds' }, { rank: 4, suit: 'clubs' },
+      { rank: 8, suit: 'hearts' }, { rank: 9, suit: 'spades' },
+    ];
+    const burns = [{ rank: 6, suit: 'clubs' }, { rank: 7, suit: 'diamonds' }, { rank: 10, suit: 'clubs' }];
+    const fixedKeys = new Set([...hostCards, ...guestCards, ...board, ...burns].map((card) => `${card.rank}:${card.suit}`));
+    const fixedDeck = [burns[0]!, board[0]!, board[1]!, board[2]!, burns[1]!, board[3]!, burns[2]!, board[4]!,
+      ...createDeck().filter((card) => !fixedKeys.has(`${card.rank}:${card.suit}`))];
+    const riggedTable = { ...terminalTable, hand: { ...hand, deck: fixedDeck, players: hand.players.map((player) => ({
+      ...player, holeCards: player.id === 'host-user' ? hostCards : guestCards,
+    })) } };
+    rooms.get(terminalRoomId)!.state.table = riggedTable;
+    const allIn = await call('host', { action: 'action', roomId: terminalRoomId, expectedVersion: riggedTable.version, pokerAction: { type: 'all-in' } });
+    assert.equal(allIn.status, 200);
+    const finished = rooms.get(terminalRoomId)!;
+    assert.equal(finished.status, 'finished');
+    assert.equal(finished.state.winnerId, 'host-user');
+    const rematch = await call('guest', { action: 'rematch', roomId: terminalRoomId });
+    assert.equal(rematch.status, 200, 'a seated player can request a rematch');
+    assert.equal(rooms.get(terminalRoomId)!.status, 'waiting');
+    assert.equal(rooms.get(terminalRoomId)!.state.table, null);
+    assert.equal(rooms.get(terminalRoomId)!.state.winnerId, undefined);
+    await call('guest', { action: 'leave', roomId: terminalRoomId });
+    const finalLeave = await call('host', { action: 'leave', roomId: terminalRoomId });
+    assert.equal(await finalLeave.json().then((body: { room: unknown }) => body.room), null);
+    assert.equal(rooms.has(terminalRoomId), false);
+
+    const staleWaiting = await call('host', { action: 'create', name: '期限切れ待機ルーム' });
+    const staleWaitingId = (await staleWaiting.json() as { room: { roomId: string } }).room.roomId;
+    const staleFinished = await call('host', { action: 'create', name: '期限切れ終了ルーム' });
+    const staleFinishedId = (await staleFinished.json() as { room: { roomId: string } }).room.roomId;
+    rooms.get(staleWaitingId)!.updated_at = new Date(now - 25 * 60 * 60 * 1_000).toISOString();
+    rooms.get(staleFinishedId)!.status = 'finished';
+    rooms.get(staleFinishedId)!.updated_at = new Date(now - 2 * 60 * 60 * 1_000).toISOString();
+    const cleanupTrigger = await call('host', { action: 'create', name: '新規ルーム' });
+    assert.equal(cleanupTrigger.status, 200);
+    assert.equal(rooms.has(staleWaitingId), false);
+    assert.equal(rooms.has(staleFinishedId), false);
   } finally {
     globalThis.fetch = originalFetch;
     Date.now = originalNow;

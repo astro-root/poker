@@ -6,7 +6,8 @@ export type RoomPeer = Readonly<{ id: string; name: string; connected: boolean }
 export type OnlineRoom = Readonly<{
   roomId: string;
   hostId: string;
-  status: 'waiting' | 'playing';
+  status: 'waiting' | 'playing' | 'finished';
+  winnerId: string | null;
   version: number;
   peers: readonly RoomPeer[];
   table: TableState | null;
@@ -29,6 +30,7 @@ export const submitRoomAction = (roomId: string, expectedVersion: number, action
   request('action', { roomId, expectedVersion, pokerAction: action });
 export const nextRoomHand = (roomId: string, expectedVersion: number): Promise<OnlineRoom> =>
   request('next-hand', { roomId, expectedVersion });
+export const rematchRoom = (roomId: string): Promise<OnlineRoom> => request('rematch', { roomId });
 export const leaveRoom = (roomId: string): Promise<OnlineRoom | null> => request('leave', { roomId });
 
 export function leaveRoomKeepalive(roomId: string): void {

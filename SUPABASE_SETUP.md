@@ -14,7 +14,7 @@
 
 DB作成は次のどちらか一方で行います。
 
-**SQL Editorを使う場合**: Dashboard → SQL Editor で [`supabase/SQL_EDITOR_SETUP.sql`](/workspaces/poker/supabase/SQL_EDITOR_SETUP.sql) の内容を実行します。このファイルは下記のマイグレーションと同じSQLです。
+**SQL Editorを使う場合**: Dashboard → SQL Editor で [`supabase/SQL_EDITOR_SETUP.sql`](/workspaces/poker/supabase/SQL_EDITOR_SETUP.sql) の内容を実行します。このファイルは全マイグレーション適用後のスキーマに相当します。
 
 **CLIでmigrationを適用する場合**: Supabase CLI が利用できる環境で、リポジトリのルートから実行します。
 
@@ -25,7 +25,7 @@ npx supabase db push
 npx supabase functions deploy rooms
 ```
 
-`db push` は `supabase/migrations/20261019000100_create_private_poker_rooms.sql` を適用します。どちらの方法でもルームテーブルはRLSを有効にし、匿名ユーザーを含むブラウザーからの直接読込・更新を拒否します。関数のサーバー権限でのみ全状態を読み書きします。`rooms` 関数はJWT検証を有効にし、匿名ゲストを含む認証済み参加者だけを受け入れます。Supabase Edge Functions はサービスキーをサーバー実行環境へ注入します。手動でサービスキーをフロントエンドへ設定する必要はありません。
+`db push` は `supabase/migrations/` 内の全マイグレーションを順番に適用します。ルーム状態は RLS で保護し、ブラウザーから直接読み書きできません。期限切れルームは新しいルーム作成時に機会的に削除されます（finished は1時間、その他は24時間）。新規ルームが作られない環境では古い行がそのまま残るため、必要に応じて Dashboard の SQL Editor で `updated_at` を基準に削除してください。
 
 ローカル開発では `npx supabase start`、別ターミナルで `npx supabase functions serve rooms` を起動します。関数のローカル実行に必要な環境変数は Supabase CLI の案内に従ってください。
 

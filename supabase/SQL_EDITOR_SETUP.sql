@@ -1,5 +1,5 @@
 -- Poker online rooms: paste this whole file into Supabase SQL Editor and run it.
--- This is equivalent to migrations/20261019000100_create_private_poker_rooms.sql.
+-- This applies the combined result of the poker_rooms migrations for SQL Editor setups.
 -- Clients cannot read or write this table directly. The rooms Edge Function uses
 -- its server-side service role to validate and update complete game state.
 
@@ -17,6 +17,12 @@ create table if not exists public.poker_rooms (
 
 alter table public.poker_rooms enable row level security;
 revoke all on public.poker_rooms from anon, authenticated;
+
+alter table public.poker_rooms
+  drop constraint if exists poker_rooms_status_check;
+alter table public.poker_rooms
+  add constraint poker_rooms_status_check
+  check (status in ('waiting', 'playing', 'finished'));
 
 create index if not exists poker_rooms_updated_at_idx on public.poker_rooms (updated_at);
 
