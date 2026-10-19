@@ -7,4 +7,5 @@ export * from './hand.ts';
 export * from './table.ts';
 export * from './rooms.ts';
 export * from './ai.ts';
+export * from './equity.ts';
 export * from './education.ts';

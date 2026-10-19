@@ -1,0 +1,4 @@
+project_id = "poker"
+
+[functions.rooms]
+verify_jwt = true

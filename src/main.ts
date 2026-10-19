@@ -4,8 +4,10 @@ import { chooseAiAction, type AiStyle } from './poker/ai.ts';
 import { getHandPot } from './poker/hand.ts';
 import { getLegalActions, type BettingAction } from './poker/betting.ts';
 import { evaluateHand } from './poker/evaluator.ts';
+import { estimateEquity, type EquityEstimate } from './poker/equity.ts';
 import { explainHand, getCallBreakEvenProbability, POKER_GLOSSARY } from './poker/education.ts';
 import { initializeGuestIdentity } from './supabase/client.ts';
+import { createRoom, joinRoom, nextRoomHand, readRoom, startRoom as startServerRoom, submitRoomAction, type OnlineRoom, type RoomPeer } from './supabase/online-room.ts';
 import './style.css';
 
 let humanId = '';
@@ -37,6 +39,58 @@ type ArchivedHand = Readonly<{
 let recentHands = loadHandArchive();
 let archivedHand: object | null = null;
 let humanStackAtHandStart = 1_000;
+let coachOpen = false;
+const equityCache = new Map<string, EquityEstimate>();
+type AppMode = 'practice' | 'online-lobby' | 'online-playing';
+let appMode: AppMode = 'practice';
+let onlineRoomId = '';
+let onlineHost = false;
+let onlineStarted = false;
+let onlineStatus = '';
+let onlineError = '';
+let onlinePeers: RoomPeer[] = [];
+let onlineNames = new Map<string, string>();
+let onlinePollTimer: number | undefined;
+let onlinePending = false;
+
+function playerLabel(id: string): string {
+  if (id === humanId) return playerName;
+  const onlineName = onlineNames.get(id);
+  if (onlineName) return onlineName;
+  const index = aiIds.indexOf(id);
+  const style = index === 0 ? '攻め' : index === 2 ? '堅実' : '標準';
+  return index >= 0 ? `AI ${index + 1} · ${style}` : 'プレイヤー';
+}
+
+function currentEquity(): EquityEstimate | null {
+  if (!table?.hand || table.hand.stage === 'complete') return null;
+  const me = table.hand.players.find((player) => player.id === humanId);
+  if (!me) return null;
+  const opponents = table.hand.players.filter((player) => player.id !== humanId);
+  const activeCount = opponents.filter((player) => !player.folded).length;
+  if (activeCount === 0) return null;
+  const key = [me.holeCards.map(cardLabel).join(','), table.hand.board.map(cardLabel).join(','), opponents.filter((player) => player.folded).length, activeCount].join('|');
+  const cached = equityCache.get(key);
+  if (cached) return cached;
+  const estimate = estimateEquity(me.holeCards, table.hand.board, activeCount, opponents.length - activeCount, 240);
+  equityCache.set(key, estimate);
+  if (equityCache.size > 20) equityCache.delete(equityCache.keys().next().value!);
+  return estimate;
+}
+
+function coachAdvice(equity: EquityEstimate, legal: ReturnType<typeof getLegalActions>, pot: number): string {
+  if (!table?.hand) return '';
+  const percent = (equity.equity * 100).toLocaleString('ja-JP', { maximumFractionDigits: 1 });
+  if (legal.callAmount > 0) {
+    const required = getCallBreakEvenProbability(pot, legal.callAmount);
+    const requiredPercent = (required * 100).toLocaleString('ja-JP', { maximumFractionDigits: 1 });
+    return equity.equity >= required
+      ? `推定勝率は約${percent}%。コールの損益分岐点${requiredPercent}%を上回っています。相手の次のベットや推定誤差も考慮して判断しましょう。`
+      : `推定勝率は約${percent}%。コールの損益分岐点${requiredPercent}%を下回っています。必要チップと相手の強さを見直しましょう。`;
+  }
+  if (legal.canCheck) return `推定勝率は約${percent}%。追加コストなしで次のカードを見られます。チェックで進むか、強い手からバリューを取るかを考えましょう。`;
+  return `推定勝率は約${percent}%。この数字はランダムな相手の手札を使ったシミュレーションです。`;
+}
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
   const element = document.createElement(tag);
@@ -56,13 +110,6 @@ function isAiPlayer(id: string): boolean {
 function aiStyle(id: string): AiStyle {
   const index = aiIds.indexOf(id);
   return index === 0 ? 'aggressive' : index === 2 ? 'cautious' : 'balanced';
-}
-
-function playerLabel(id: string): string {
-  if (id === humanId) return playerName;
-  const index = aiIds.indexOf(id);
-  const style = index === 0 ? '攻め' : index === 2 ? '堅実' : '標準';
-  return index >= 0 ? `AI ${index + 1} · ${style}` : 'プレイヤー';
 }
 
 function loadPlayerName(): string {
@@ -150,6 +197,7 @@ function cardElement(card: Card | null, hidden = false): HTMLElement {
 }
 
 function startGame(): void {
+  appMode = 'practice';
   if (aiTimer) window.clearTimeout(aiTimer);
   aiThinking = false;
   table = createTable([
@@ -160,6 +208,7 @@ function startGame(): void {
   humanStackAtHandStart = 1_000;
   archivedHand = null;
   handHistory = [];
+  coachOpen = false;
   notice = 'あなたの番です。チェック、コール、レイズなどを選べます。';
   render();
   runAiIfNeeded();
@@ -167,6 +216,17 @@ function startGame(): void {
 
 function performAction(action: BettingAction): void {
   if (!table || !table.hand || table.hand.stage === 'complete' || aiThinking) return;
+  if (appMode === 'online-playing') {
+    if (onlinePending) return;
+    onlinePending = true;
+    notice = '操作を送信しています…';
+    render();
+    void submitRoomAction(onlineRoomId, table.version, action).then(applyOnlineRoom).catch((error: unknown) => {
+      onlineError = error instanceof Error ? error.message : '操作を反映できませんでした。';
+      void refreshOnlineRoom();
+    }).finally(() => { onlinePending = false; });
+    return;
+  }
   try {
     const actionStage = stageLabel(table.hand.stage);
     table = applyTableAction(table, table.version, humanId, action);
@@ -186,6 +246,86 @@ function actionNotice(name: string, action: BettingAction): string {
   if (action.type === 'call') return `${name}はコールしました。`;
   if (action.type === 'all-in') return `${name}はオールインしました。`;
   return `${name}は${formatChips(action.to)}チップに${action.type === 'bet' ? 'ベット' : 'レイズ'}しました。`;
+}
+
+function changeMode(mode: AppMode): void {
+  appMode = mode;
+  render();
+}
+
+async function closeOnlineSession(): Promise<void> {
+  if (onlinePollTimer) window.clearInterval(onlinePollTimer);
+  onlinePollTimer = undefined;
+  onlineRoomId = '';
+  onlineStarted = false;
+  onlinePeers = [];
+  onlineNames.clear();
+  window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+}
+
+function applyOnlineRoom(room: OnlineRoom): void {
+  onlineRoomId = room.roomId;
+  onlineHost = room.hostId === humanId;
+  onlineStarted = room.status === 'playing';
+  onlinePeers = [...room.peers];
+  onlineNames = new Map(room.peers.map((peer) => [peer.id, peer.name]));
+  if (room.table) {
+    if (table?.handNumber !== room.table.handNumber && table?.hand) {
+      humanStackAtHandStart = table.hand.players.find((player) => player.id === humanId)?.stack ?? humanStackAtHandStart;
+      archivedHand = null;
+      handHistory = [];
+    }
+    table = room.table;
+  }
+  notice = room.notice || (room.status === 'playing' ? '対戦中です。' : '参加者を待っています。');
+  onlineStatus = room.status === 'waiting' ? '招待リンクを共有して友だちを待ちます' : 'オンライン対戦中';
+  if (room.status === 'playing') appMode = 'online-playing';
+  render();
+}
+
+async function refreshOnlineRoom(): Promise<void> {
+  if (!onlineRoomId || onlinePending) return;
+  try { applyOnlineRoom(await readRoom(onlineRoomId)); }
+  catch (error) { onlineError = error instanceof Error ? error.message : 'ルーム状態を取得できませんでした。'; }
+}
+
+function startOnlinePolling(): void {
+  if (onlinePollTimer) window.clearInterval(onlinePollTimer);
+  onlinePollTimer = window.setInterval(() => { void refreshOnlineRoom(); }, 1_500);
+}
+
+async function createOnlineRoom(): Promise<void> {
+  try {
+    if (!guestIdentityOnlineReady) throw new Error('オンライン対戦を利用できません。Supabase設定と匿名ログインを確認してください。');
+    const room = await createRoom(playerName);
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#room=${room.roomId}`);
+    appMode = 'online-lobby';
+    applyOnlineRoom(room);
+    startOnlinePolling();
+  } catch (error) {
+    onlineError = error instanceof Error ? error.message : 'ルームを作成できませんでした。';
+    renderOnlineLobby();
+  }
+}
+
+async function joinOnlineRoom(roomId: string): Promise<void> {
+  if (!/^[a-f0-9]{36}$/u.test(roomId)) { onlineError = '招待リンクが正しくありません。'; renderOnlineLobby(); return; }
+  try {
+    if (!guestIdentityOnlineReady) throw new Error('オンライン対戦を利用できません。Supabase設定と匿名ログインを確認してください。');
+    const room = await joinRoom(roomId, playerName);
+    appMode = room.status === 'playing' ? 'online-playing' : 'online-lobby';
+    applyOnlineRoom(room);
+    startOnlinePolling();
+  }
+  catch (error) { onlineError = error instanceof Error ? error.message : 'ルームに参加できませんでした。'; renderOnlineLobby(); }
+}
+
+function startOnlineGame(): void {
+  if (!onlineHost || onlinePeers.length < 2) { onlineError = '友だちが参加するまで待ってください。'; renderOnlineLobby(); return; }
+  void startServerRoom(onlineRoomId).then(applyOnlineRoom).catch((error: unknown) => {
+    onlineError = error instanceof Error ? error.message : '対戦を開始できませんでした.';
+    renderOnlineLobby();
+  });
 }
 
 function runAiIfNeeded(): void {
@@ -240,11 +380,125 @@ function createActionButton(label: string, action: BettingAction, style: string,
   return button;
 }
 
+function renderOnlineLobby(): void {
+  const shell = node('main', 'page-shell lobby-shell');
+  const header = node('header', 'topbar');
+  header.append(node('a', 'brand', 'POKER TABLE'));
+  header.append(node('span', 'practice-tag', 'オンライン対戦'));
+  shell.append(header);
+  const intro = node('section', 'intro lobby-intro');
+  intro.append(node('div', 'eyebrow', 'PRIVATE TABLE / PLAY WITH FRIENDS'));
+  intro.append(node('h1', '', 'リンクを送って、すぐ対戦。'));
+  intro.append(node('p', 'intro-copy', 'ゲスト名を入れて部屋を作り、招待リンクを共有するだけ。手札は本人だけに表示されます。'));
+  shell.append(intro);
+
+  const panel = node('section', 'lobby-panel');
+  const nameField = node('label', 'lobby-name-field');
+  nameField.append(node('span', '', 'プレイヤー名'));
+  const nameInput = node('input', 'player-name-input') as HTMLInputElement;
+  nameInput.value = playerName;
+  nameInput.maxLength = 20;
+  nameInput.disabled = Boolean(onlineRoomId);
+  nameInput.addEventListener('change', () => {
+    playerName = nameInput.value.trim().slice(0, 20) || 'あなた';
+    try { globalThis.localStorage.setItem(playerNameKey, playerName); } catch { /* Local identity still applies. */ }
+    onlineNames.set(humanId, playerName);
+    renderOnlineLobby();
+  });
+  nameField.append(nameInput);
+  panel.append(nameField);
+
+  if (!onlineRoomId) {
+    const create = node('button', 'action-button primary-action lobby-create', '対戦ルームを作る');
+    create.type = 'button';
+    create.addEventListener('click', () => { void createOnlineRoom(); });
+    panel.append(create, node('div', 'lobby-divider', 'または招待リンクから参加'));
+    const joinRow = node('div', 'lobby-join-row');
+    const roomInput = node('input', 'room-link-input') as HTMLInputElement;
+    roomInput.placeholder = '招待リンクまたはルームID';
+    roomInput.setAttribute('aria-label', '招待リンクまたはルームID');
+    const join = node('button', 'action-button secondary-action', '参加');
+    join.type = 'button';
+    join.addEventListener('click', () => {
+      const match = roomInput.value.match(/(?:#room=)?([a-f0-9]{36})$/u);
+      if (match?.[1]) {
+        window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#room=${match[1]}`);
+        void joinOnlineRoom(match[1]);
+      } else { onlineError = '有効な招待リンクまたはルームIDを入力してください。'; renderOnlineLobby(); }
+    });
+    joinRow.append(roomInput, join);
+    panel.append(joinRow);
+  } else {
+    const invite = `${window.location.origin}${window.location.pathname}${window.location.search}#room=${onlineRoomId}`;
+    panel.append(node('h2', 'lobby-section-title', onlineHost ? '友だちを招待' : 'ルームに参加中'));
+    const inviteRow = node('div', 'lobby-invite-row');
+    const inviteInput = node('input', 'room-link-input') as HTMLInputElement;
+    inviteInput.value = invite;
+    inviteInput.readOnly = true;
+    inviteInput.setAttribute('aria-label', '招待リンク');
+    const copy = node('button', 'action-button secondary-action', 'リンクをコピー');
+    copy.type = 'button';
+    copy.addEventListener('click', () => {
+      void navigator.clipboard?.writeText(invite).then(() => { onlineStatus = '招待リンクをコピーしました'; renderOnlineLobby(); })
+        .catch(() => { inviteInput.select(); onlineStatus = 'リンクを選択しました。コピーしてください'; renderOnlineLobby(); });
+    });
+    inviteRow.append(inviteInput, copy);
+    if (typeof navigator.share === 'function') {
+      const share = node('button', 'action-button secondary-action', '共有');
+      share.type = 'button';
+      share.addEventListener('click', () => {
+        void navigator.share({ title: 'ポーカーに招待', text: '一緒にポーカーを遊ぼう', url: invite })
+          .catch(() => { /* Closing the native share sheet is not an error. */ });
+      });
+      inviteRow.append(share);
+    }
+    panel.append(inviteRow);
+    const retry = node('button', 'action-button secondary-action lobby-retry', '状態を更新');
+    retry.type = 'button';
+    retry.addEventListener('click', () => { void refreshOnlineRoom(); });
+    panel.append(retry);
+    panel.append(node('p', 'lobby-status', onlineStatus || (onlineHost ? '友だちの参加を待っています' : 'ホストに接続しています')));
+    const roster = node('ul', 'lobby-roster');
+    for (const peer of onlinePeers) {
+      const item = node('li', 'lobby-player');
+      item.append(node('span', 'lobby-presence'), node('strong', '', peer.id === humanId ? `${peer.name}（あなた）` : peer.name));
+      item.append(node('span', 'lobby-connection', '参加中'));
+      roster.append(item);
+    }
+    if (!onlinePeers.length) roster.append(node('li', 'lobby-empty', '参加者を確認しています…'));
+    panel.append(roster);
+    if (onlineStarted) {
+      const backToTable = node('button', 'action-button primary-action lobby-create', 'テーブルに戻る');
+      backToTable.type = 'button';
+      backToTable.addEventListener('click', () => { appMode = 'online-playing'; render(); });
+      panel.append(backToTable);
+    } else if (onlineHost) {
+        const start = node('button', 'action-button primary-action lobby-create', '対戦を開始');
+        start.type = 'button';
+        start.disabled = onlinePeers.filter((peer) => peer.connected).length < 2;
+        start.addEventListener('click', startOnlineGame);
+        panel.append(start);
+    } else panel.append(node('p', 'lobby-waiting', 'ホストが対戦を開始すると自動でテーブルに移動します。'));
+  }
+  if (onlineError) panel.append(node('p', 'lobby-error', onlineError));
+  const practice = node('button', 'lobby-back', 'ひとりで練習する');
+  practice.type = 'button';
+  practice.addEventListener('click', () => {
+    void closeOnlineSession().finally(() => { onlineHost = false; onlineError = ''; startGame(); });
+  });
+  panel.append(practice);
+  shell.append(panel);
+  shell.append(node('footer', 'footer-note', 'プレイチップのみ · 現金や賞金はありません · ルーム状態はサーバーに保存されます'));
+  app!.replaceChildren(shell);
+}
+
 function render(): void {
+  if (appMode === 'online-lobby') { renderOnlineLobby(); return; }
   if (!table?.hand) return;
   archiveCompletedHand();
   const view = getPublicTableView(table, humanId);
   const hand = table.hand;
+  const equity = currentEquity();
   const me = hand.players.find((player) => player.id === humanId);
   const round = hand.bettingRound;
   const isHumanTurn = !aiThinking && round?.actorId === humanId && hand.stage !== 'complete';
@@ -269,20 +523,33 @@ function render(): void {
     render();
   });
   playerControl.append(playerNameInput);
-  header.append(brand, playerControl, node('span', 'practice-tag', '練習テーブル'));
+  header.append(brand, playerControl, node('span', 'practice-tag', appMode === 'online-playing' ? 'オンライン卓' : '練習テーブル'));
   shell.append(header);
 
   const intro = node('section', 'intro');
   intro.append(node('div', 'eyebrow', 'TEXAS HOLD’EM / TABLE 01'));
   intro.append(node('h1', '', '一手ずつ、覚えていこう。'));
-  intro.append(node('p', 'intro-copy', '攻め・標準・堅実の3人のルールベースAIとの練習対戦です。チップはゲーム内の練習用です。'));
+  intro.append(node('p', 'intro-copy', appMode === 'online-playing'
+    ? '招待した友だちとテキサスホールデム。手札は本人だけに表示され、配札と進行はサーバーが管理します。'
+    : '個性の異なるAIとテキサスホールデムを練習。勝率の目安とコーチの解説を見ながら、チップを賭ける判断を試せます。'));
   shell.append(intro);
+  const playModeBar = node('section', 'play-mode-bar');
+  playModeBar.append(node('span', 'play-mode-copy', appMode === 'online-playing' ? '友だちとの対戦中' : '友だちとプレイ'));
+  const onlineButton = node('button', 'online-entry-button', appMode === 'online-playing' ? 'ルーム情報・招待リンク' : 'オンライン対戦を始める →');
+  onlineButton.type = 'button';
+  onlineButton.addEventListener('click', () => {
+    if (appMode !== 'online-playing') { onlineRoomId = ''; onlineHost = false; onlineError = ''; }
+    appMode = 'online-lobby';
+    render();
+  });
+  playModeBar.append(onlineButton);
+  shell.append(playModeBar);
   const beginnerGuide = node('details', 'beginner-guide');
   beginnerGuide.append(node('summary', '', 'はじめての方へ：遊び方を見る'));
   const guideBody = node('div', 'guide-body');
   guideBody.append(node('p', '', '手札2枚と、テーブル中央に順番に出る共通カード5枚から、いちばん強い5枚の役を作ります。'));
   guideBody.append(node('p', '', '自分の番では、チェック（追加せず進む）、コール（相手に合わせる）、レイズ（ベットを上げる）、フォールド（そのハンドを降りる）などを選びます。'));
-  guideBody.append(node('p', '', 'ほかのプレイヤーより多くのチップを獲得することを目指します。練習チップに金銭的価値はなく、この画面の対戦状態は端末内だけで管理されます。'));
+  guideBody.append(node('p', '', 'ほかのプレイヤーより多くのチップを獲得することを目指します。ひとり練習の状態は端末内だけで管理され、ゲーム内チップに金銭的価値はありません。'));
   beginnerGuide.append(guideBody);
   shell.append(beginnerGuide);
   const tableSettings = node('section', 'practice-settings');
@@ -305,11 +572,15 @@ function render(): void {
   });
   opponentLabel.append(opponentSelect);
   tableSettings.append(opponentLabel, node('span', 'settings-hint', '人数を変えると新しいハンドから再開します。'));
-  shell.append(tableSettings);
+  if (appMode === 'practice') shell.append(tableSettings);
 
   const tableCard = node('section', 'game-panel');
   const panelHeader = node('div', 'panel-header');
-  panelHeader.append(node('span', 'panel-label', `ハンド ${table.handNumber} · ${stageLabel(hand.stage)}`));
+  const handMeta = node('div', 'hand-meta');
+  const level = Math.floor((table.handNumber - 1) / 10) + 1;
+  handMeta.append(node('span', 'panel-label', `ハンド ${table.handNumber} · ${stageLabel(hand.stage)}`));
+  handMeta.append(node('span', 'blind-level', `LEVEL ${level} · SB ${formatChips(table.smallBlind)} / BB ${formatChips(table.bigBlind)}`));
+  panelHeader.append(handMeta);
   panelHeader.append(node('span', `turn-indicator${isHumanTurn ? ' your-turn' : ''}`, hand.stage === 'complete' ? 'ハンド終了' : isHumanTurn ? 'あなたの番' : aiThinking ? '相手の思考中' : '進行中'));
   tableCard.append(panelHeader);
 
@@ -326,6 +597,12 @@ function render(): void {
   const potValue = node('div', 'pot-value');
   potValue.append(document.createTextNode(formatChips(view.hand?.pot ?? 0)), node('small', '', ' CHIPS'));
   center.append(potValue);
+  if (equity) {
+    const equityStrip = node('div', 'equity-strip');
+    equityStrip.append(node('span', 'equity-label', 'あなたの勝率'), node('strong', 'equity-value', `${(equity.win * 100).toLocaleString('ja-JP', { maximumFractionDigits: 1 })}%`));
+    equityStrip.append(node('span', 'equity-detail', `引き分け ${(equity.tie * 100).toLocaleString('ja-JP', { maximumFractionDigits: 1 })}% · ${equity.samples}回推定`));
+    center.append(equityStrip);
+  }
   const board = node('div', 'card-row community-cards');
   const boardCards = view.hand?.board ?? [];
   for (let index = 0; index < 5; index++) board.append(cardElement(boardCards[index] ?? null, !boardCards[index]));
@@ -405,11 +682,21 @@ function render(): void {
     }
     const canContinue = (table.seats.find((seat) => seat.id === humanId)?.stack ?? 0) > 0
       && table.seats.filter((seat) => seat.stack > 0).length >= 2;
-    const nextButton = node('button', 'action-button primary-action', canContinue ? '次のハンドへ' : '最初から遊ぶ');
+    const hostCanContinue = appMode !== 'online-playing' || (onlineHost && canContinue);
+    const nextButton = node('button', 'action-button primary-action', appMode === 'online-playing' && !onlineHost ? 'ホストが次のハンドを開始します' : canContinue ? '次のハンドへ' : 'トーナメントを再開');
     nextButton.type = 'button';
+    nextButton.disabled = !hostCanContinue;
     nextButton.addEventListener('click', () => {
       try {
-        if (canContinue) {
+        if (appMode === 'online-playing') {
+          if (!onlinePending) {
+            onlinePending = true;
+            void nextRoomHand(onlineRoomId, table!.version).then(applyOnlineRoom).catch((error: unknown) => {
+              onlineError = error instanceof Error ? error.message : '次のハンドを開始できませんでした。';
+              void refreshOnlineRoom();
+            }).finally(() => { onlinePending = false; });
+          }
+        } else if (canContinue) {
           humanStackAtHandStart = table!.seats.find((seat) => seat.id === humanId)?.stack ?? 0;
           table = startNextHand(table!);
           handHistory = [];
@@ -417,7 +704,7 @@ function render(): void {
         } else startGame();
         notice = 'あなたの番です。';
         render();
-        runAiIfNeeded();
+        if (appMode !== 'online-playing') runAiIfNeeded();
       } catch {
         startGame();
       }
@@ -498,10 +785,23 @@ function render(): void {
         : 'コールは現在のベットに必要な分を出します。フォールドすると、このハンドから降り、すでに出したチップは戻りません。';
     actionPanel.append(node('p', 'action-guidance', guidance));
     if (legal.canRaise) actionPanel.append(node('p', 'action-guidance', `ベットはまだ誰も賭けていないとき、レイズは相手のベットを上げるときに使います。スライダーの金額は、このラウンドで出す合計額です。`));
+    if (equity) {
+      const coach = node('section', 'coach-box');
+      const coachButton = node('button', 'coach-toggle', coachOpen ? 'コーチのアドバイスを閉じる' : 'AIコーチに相談');
+      coachButton.type = 'button';
+      coachButton.setAttribute('aria-expanded', String(coachOpen));
+      coachButton.addEventListener('click', () => { coachOpen = !coachOpen; render(); });
+      coach.append(coachButton);
+      if (coachOpen) {
+        coach.append(node('p', 'coach-copy', coachAdvice(equity, legal, view.hand?.pot ?? 0)));
+        coach.append(node('p', 'coach-caveat', '勝率は未知の手札をランダムに配ったシミュレーションです。相手のプレイ傾向や将来のベットは含みません。'));
+      }
+      actionPanel.append(coach);
+    }
   } else {
     actionPanel.append(node('p', 'action-hint', '相手がアクションしています。'));
   }
-  shell.append(actionPanel);
+  shell.insertBefore(actionPanel, historyDetails);
 
   const glossary = node('details', 'glossary');
   const summary = node('summary', '', '用語を確認する');
@@ -567,7 +867,7 @@ function render(): void {
 
 function renderSeat(name: string, seat: { id: string; stack: number; folded: boolean; holeCards: readonly [Card, Card] | null; streetContribution: number } | undefined, active: boolean, showCards: boolean, isDealer: boolean, revealOpponentCards = false, stackRatio = 1): HTMLElement {
   const card = node('div', `player-seat${active ? ' active-seat' : ''}${seat?.folded ? ' folded-seat' : ''}${showCards ? ' human-seat' : ''}`);
-  const avatar = node('span', 'avatar', showCards ? 'YOU' : 'AI');
+  const avatar = node('span', 'avatar', showCards ? 'YOU' : onlineNames.has(seat?.id ?? '') ? 'P' : 'AI');
   const details = node('div', 'seat-details');
   details.append(node('strong', '', name));
   details.append(node('span', 'seat-stack', `${formatChips(seat?.stack ?? 0)} チップ`));
@@ -598,7 +898,13 @@ function stageLabel(stage: string): string {
 void initializeGuestIdentity().then(({ guestId, onlineReady }) => {
   humanId = guestId;
   guestIdentityOnlineReady = onlineReady;
-  startGame();
+  const inviteId = window.location.hash.match(/^#room=([a-f0-9]{36})$/u)?.[1];
+  if (inviteId) {
+    appMode = 'online-lobby';
+    onlineError = '';
+    renderOnlineLobby();
+    void joinOnlineRoom(inviteId);
+  } else startGame();
 }).catch(() => {
   // Keep practice available during an auth outage; online room actions will require a valid session.
   humanId = globalThis.crypto.randomUUID();

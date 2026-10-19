@@ -6,6 +6,8 @@ export type TableState = Readonly<{
   seats: readonly TableSeat[];
   smallBlind: number;
   bigBlind: number;
+  baseSmallBlind: number;
+  baseBigBlind: number;
   buttonPlayerId: string | null;
   handNumber: number;
   version: number;
@@ -32,6 +34,8 @@ export function createTable(seats: readonly TableSeat[], smallBlind: number, big
     seats: seats.map((seat) => ({ ...seat })),
     smallBlind,
     bigBlind,
+    baseSmallBlind: smallBlind,
+    baseBigBlind: bigBlind,
     buttonPlayerId: null,
     handNumber: 0,
     version: 0,
@@ -62,12 +66,19 @@ export function startNextHand(table: TableState): TableState {
   const buttonPlayerId = nextFundedButton(seats, table.buttonPlayerId);
   const participants = seats.filter((seat) => seat.stack > 0);
   const buttonIndex = participants.findIndex((seat) => seat.id === buttonPlayerId);
-  const hand = startHand(participants, buttonIndex, table.smallBlind, table.bigBlind);
+  const nextHandNumber = table.handNumber + 1;
+  const level = Math.floor((nextHandNumber - 1) / 10);
+  const smallBlind = table.baseSmallBlind * 2 ** level;
+  const bigBlind = table.baseBigBlind * 2 ** level;
+  if (!Number.isSafeInteger(smallBlind) || !Number.isSafeInteger(bigBlind)) throw new RangeError('Blind level exceeds the safe integer range');
+  const hand = startHand(participants, buttonIndex, smallBlind, bigBlind);
   return {
     ...table,
     seats,
+    smallBlind,
+    bigBlind,
     buttonPlayerId,
-    handNumber: table.handNumber + 1,
+    handNumber: nextHandNumber,
     version: table.version + 1,
     hand,
   };

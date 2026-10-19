@@ -182,3 +182,397 @@ button:disabled { cursor: not-allowed; opacity: .48; }
   .action-panel { padding: 15px 13px 13px; }
   .glossary-grid { grid-template-columns: 1fr; }
 }
+
+/* Compact table-first layout inspired by PoketPoker's practice game. */
+:root {
+  color: #202a25;
+  background: #f5f6f3;
+  --green: #176b4b;
+  --green-dark: #123d2d;
+  --green-light: #e8f1eb;
+  --line: #e1e6e1;
+}
+
+body {
+  background: #f5f6f3;
+}
+
+.page-shell {
+  width: min(100% - 40px, 1080px);
+  padding-top: 18px;
+}
+
+.topbar {
+  min-height: 42px;
+  border-bottom: 1px solid #e3e7e2;
+  padding-bottom: 11px;
+}
+
+.brand {
+  color: #183d2d;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -.035em;
+}
+
+.practice-tag {
+  border-color: #d8e5dc;
+  background: #edf4ef;
+  color: #32704e;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.intro {
+  padding: 25px 0 17px;
+}
+
+.intro h1 {
+  margin: 5px 0;
+  color: #17251e;
+  font-size: clamp(23px, 3.6vw, 31px);
+  letter-spacing: -.04em;
+}
+
+.intro-copy {
+  max-width: 680px;
+  font-size: 12px;
+}
+
+.beginner-guide {
+  margin-bottom: 10px;
+}
+
+.practice-settings {
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding: 0 2px;
+}
+
+.opponent-count-control {
+  color: #425349;
+}
+
+.game-panel {
+  border-color: #dfe5df;
+  border-radius: 14px;
+  box-shadow: 0 5px 20px #183c2b0a;
+}
+
+.panel-header {
+  min-height: 48px;
+  padding: 12px 18px;
+}
+
+.panel-label {
+  color: #52685b;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.turn-indicator {
+  font-size: 10px;
+}
+
+.felt {
+  position: relative;
+  isolation: isolate;
+  min-height: 440px;
+  gap: 13px;
+  padding: 25px 30px 20px;
+  background: radial-gradient(ellipse at 50% 46%, #267a55 0%, #176442 57%, #104b35 100%);
+}
+
+.felt::before {
+  position: absolute;
+  z-index: -1;
+  inset: 20px 8%;
+  border: 2px solid #d6bd7a66;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 8px #ffffff08, 0 3px 0 #082e20;
+  content: '';
+}
+
+.opponent-seats {
+  display: grid;
+  width: min(100%, 990px);
+  grid-template-columns: repeat(auto-fit, minmax(min(176px, 100%), 1fr));
+  align-items: start;
+  justify-items: center;
+  gap: 12px;
+}
+
+.player-seat {
+  width: 100%;
+  max-width: 190px;
+  flex: 1 1 0;
+  border-color: #ffffff38;
+  border-radius: 10px;
+  background: #0c3025d9;
+  box-shadow: 0 5px 13px #062b1e2b;
+}
+
+.active-seat {
+  border-color: #f0cf7c;
+  box-shadow: 0 0 0 2px #f0cf7c35, 0 5px 13px #062b1e2b;
+}
+
+.avatar {
+  border-color: #ffffff35;
+  background: #204c39;
+  color: #f0d68d;
+  font-size: 8px;
+}
+
+.human-seat .avatar {
+  background: #f0d68d;
+  color: #234b37;
+}
+
+.stack-meter-fill {
+  background: #e6c36b;
+}
+
+.playing-card {
+  border-radius: 6px;
+  box-shadow: 0 3px 7px #00170d40;
+}
+
+.table-center {
+  gap: 6px;
+  padding: 8px 0 10px;
+}
+
+.pot-label {
+  color: #d2e4d9;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.pot-value {
+  font-size: 25px;
+  font-weight: 700;
+  text-shadow: 0 2px 4px #082c1e66;
+}
+
+.community-cards {
+  margin-top: 7px;
+}
+
+.notice-bar {
+  min-height: 39px;
+  border-top: 1px solid #edf0ec;
+  color: #58695f;
+  font-size: 10px;
+}
+
+.action-panel {
+  margin-top: 10px;
+  padding: 16px 18px 13px;
+  border-color: #dfe5df;
+  border-radius: 12px;
+  box-shadow: 0 3px 14px #183c2b08;
+}
+
+.action-heading h2 {
+  color: #24392d;
+  font-size: 13px;
+}
+
+.action-button {
+  min-height: 41px;
+  border-radius: 8px;
+}
+
+.primary-action {
+  background: #176b4b;
+}
+
+.primary-action:hover:not(:disabled) {
+  background: #12583d;
+}
+
+.secondary-action {
+  border-color: #d6e4da;
+  background: #edf5ef;
+  color: #21583b;
+}
+
+.lesson-card {
+  border-color: #dce7de;
+  border-radius: 11px;
+  background: #eef4ef;
+}
+
+.hand-history,
+.recent-hands,
+.glossary {
+  border-color: #e1e6e1;
+}
+
+@media (max-width: 719px) {
+  .page-shell { width: min(100% - 24px, 1080px); padding-top: 13px; }
+  .intro { padding-top: 21px; }
+  .practice-settings { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .felt { min-height: 390px; padding: 19px 12px; }
+  .felt::before { inset: 36px 2%; border-radius: 46%; }
+  .opponent-seats { grid-template-columns: repeat(auto-fit, minmax(min(155px, 100%), 1fr)); gap: 9px; }
+  .player-seat { width: min(100%, 245px); max-width: 245px; flex: 0 1 245px; }
+}
+
+@media (max-width: 520px) {
+  .page-shell { width: min(100% - 20px, 1080px); }
+  .topbar { display: grid; grid-template-columns: 1fr auto; row-gap: 8px; }
+  .brand { grid-column: 1; grid-row: 1; }
+  .practice-tag { grid-column: 2; grid-row: 1; }
+  .player-name-control { grid-column: 1 / -1; grid-row: 2; justify-content: flex-end; }
+  .player-name-control > span { display: inline; }
+  .player-name-input { width: 125px; }
+  .panel-header { align-items: flex-start; }
+  .felt { min-height: 350px; gap: 12px; padding: 18px 10px 16px; }
+  .felt::before { inset: 30px 0; border-radius: 44%; }
+  .opponent-seats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+  .player-seat { min-width: 0; min-height: 70px; gap: 7px; padding: 8px; }
+  .avatar { width: 30px; height: 30px; flex-basis: 30px; }
+  .seat-details strong { font-size: 10px; }
+  .seat-stack, .seat-bet { font-size: 9px; }
+  .stack-meter { width: 75px; }
+  .hole-cards { gap: 4px; }
+  .playing-card { width: 31px; height: 44px; }
+  .card-rank { font-size: 12px; }
+  .card-suit { font-size: 14px; }
+  .card-row { min-height: 48px; gap: 5px; }
+  .community-cards .playing-card { width: clamp(32px, 10vw, 43px); height: clamp(46px, 14vw, 59px); }
+  .table-center { gap: 4px; padding: 2px 0; }
+  .pot-value { font-size: 21px; }
+  .notice-bar { align-items: flex-start; padding: 10px 12px; line-height: 1.55; }
+  .action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .action-panel { padding: 14px 12px 12px; }
+  .wager-control { gap: 8px; }
+  .revealed-hands { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); }
+  .glossary-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 360px) {
+  .practice-tag { padding: 6px 8px; }
+  .opponent-seats { grid-template-columns: 1fr; }
+  .player-seat { width: min(100%, 250px); }
+  .community-cards { gap: 3px; }
+  .community-cards .playing-card { width: 31px; height: 44px; }
+  .action-button { padding-inline: 8px; font-size: 10px; }
+}
+
+.hand-meta { display: grid; gap: 4px; }
+.blind-level { color: #89958d; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .04em; }
+.equity-strip {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: baseline;
+  gap: 0 8px;
+  margin: 2px 0 1px;
+  padding: 7px 14px;
+  border: 1px solid #ffffff38;
+  border-radius: 9px;
+  background: #0b3828a8;
+  color: #e8f3ec;
+  text-align: center;
+}
+.equity-label { color: #c7ddcf; font-size: 9px; }
+.equity-value { color: #f5d77e; font-family: 'DM Mono', monospace; font-size: 19px; }
+.equity-detail { grid-column: 1 / -1; color: #c5d9cc; font-size: 8px; }
+.coach-box { margin-top: 13px; padding-top: 11px; border-top: 1px solid #e8ece8; }
+.coach-toggle {
+  min-height: 36px;
+  border: 1px solid #d3e3d7;
+  border-radius: 8px;
+  background: #f0f6f1;
+  padding: 7px 12px;
+  color: #256142;
+  font-size: 10px;
+  font-weight: 700;
+}
+.coach-toggle:hover { background: #e5f0e8; }
+.coach-copy { margin: 10px 0 0; color: #2d4d39; font-size: 11px; font-weight: 650; line-height: 1.65; }
+.coach-caveat { margin: 5px 0 0; color: #7a877e; font-size: 9px; line-height: 1.6; }
+
+@media (max-width: 520px) {
+  .equity-strip { padding: 5px 10px; }
+  .equity-value { font-size: 17px; }
+  .coach-toggle { width: 100%; min-height: 42px; }
+}
+
+.play-mode-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -5px 0 15px;
+  padding: 11px 14px;
+  border: 1px solid #dce8df;
+  border-radius: 10px;
+  background: #eef4ef;
+}
+.play-mode-copy { color: #52665a; font-size: 10px; font-weight: 650; }
+.online-entry-button {
+  min-height: 35px;
+  border: 1px solid #d0e0d5;
+  border-radius: 7px;
+  background: #fff;
+  padding: 7px 11px;
+  color: #23613f;
+  font-size: 10px;
+  font-weight: 700;
+}
+.online-entry-button:hover { border-color: #99bda3; background: #f8fcf9; }
+.lobby-shell { max-width: 760px; }
+.lobby-intro { padding-top: 35px; }
+.lobby-panel {
+  display: grid;
+  gap: 16px;
+  padding: clamp(18px, 4vw, 30px);
+  border: 1px solid #dfe6df;
+  border-radius: 15px;
+  background: #fff;
+  box-shadow: 0 10px 35px #173a290a;
+}
+.lobby-name-field { display: grid; gap: 6px; color: #69786e; font-size: 10px; font-weight: 650; }
+.lobby-name-field .player-name-input { width: min(100%, 240px); min-height: 39px; font-size: 13px; }
+.lobby-create { width: 100%; min-height: 49px; font-size: 13px; }
+.lobby-retry { width: 100%; }
+.lobby-divider { display: flex; align-items: center; gap: 12px; color: #929c95; font-size: 10px; }
+.lobby-divider::before, .lobby-divider::after { height: 1px; flex: 1; background: #e8ece8; content: ''; }
+.lobby-join-row, .lobby-invite-row { display: flex; gap: 8px; }
+.room-link-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 43px;
+  border: 1px solid #d9e1da;
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 9px 11px;
+  color: #344c3d;
+  font-size: 11px;
+}
+.room-link-input:focus { outline: 3px solid #176b4b2b; border-color: #6e9c7a; }
+.lobby-join-row .action-button, .lobby-invite-row .action-button { flex: 0 0 auto; }
+.lobby-section-title { margin: 0; color: #2d4536; font-size: 15px; }
+.lobby-status, .lobby-waiting { margin: 0; color: #718078; font-size: 11px; line-height: 1.6; }
+.lobby-roster { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.lobby-player { display: flex; align-items: center; gap: 9px; min-height: 46px; padding: 8px 11px; border: 1px solid #e5ebe5; border-radius: 8px; background: #fafcf9; }
+.lobby-presence { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #4aab70; box-shadow: 0 0 0 3px #4aab7020; }
+.lobby-player strong { min-width: 0; overflow: hidden; color: #33493a; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.lobby-connection { margin-left: auto; color: #849088; font-size: 9px; }
+.lobby-empty { padding: 12px 0; color: #89948c; font-size: 10px; list-style: none; }
+.lobby-error { margin: 0; color: #a4473f; font-size: 11px; line-height: 1.6; }
+.lobby-back { justify-self: center; border: 0; background: transparent; padding: 7px 10px; color: #68776d; font-size: 10px; }
+.lobby-back:hover { color: #245a3c; text-decoration: underline; }
+
+@media (max-width: 520px) {
+  .play-mode-bar { align-items: stretch; flex-direction: column; gap: 7px; margin-top: 0; }
+  .online-entry-button { min-height: 42px; }
+  .lobby-join-row, .lobby-invite-row { flex-direction: column; }
+  .lobby-join-row .action-button, .lobby-invite-row .action-button { width: 100%; min-height: 43px; }
+  .lobby-intro { padding-top: 25px; }
+}
