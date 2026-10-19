@@ -795,12 +795,12 @@ body {
 }
 .play-layout {
   display: grid;
-  height: calc(100svh - 126px);
+  height: calc(100svh - 136px);
   min-height: 440px;
   grid-template-columns: minmax(0, 1fr) minmax(290px, 350px);
   gap: 10px;
 }
-.online-play-shell .play-layout { height: calc(100svh - 91px); }
+.online-play-shell .play-layout { height: calc(100svh - 99px); }
 .game-panel {
   display: flex;
   min-width: 0;
@@ -862,12 +862,12 @@ body {
   .play-shell .settings-hint { font-size: 8px; }
   .play-layout {
     display: flex;
-    height: calc(100svh - 120px);
+    height: calc(100svh - 108px);
     min-height: 0;
     flex-direction: column;
     gap: 6px;
   }
-  .online-play-shell .play-layout { height: calc(100svh - 85px); }
+  .online-play-shell .play-layout { height: calc(100svh - 80px); }
   .game-panel { flex: 1 1 auto; }
   .panel-header { min-height: 39px; padding: 7px 10px; }
   .hand-meta { gap: 2px; }
@@ -947,8 +947,8 @@ body {
 }
 
 @media (max-width: 380px), (max-height: 700px) and (max-width: 760px) {
-  .play-layout { height: calc(100svh - 124px); }
-  .online-play-shell .play-layout { height: calc(100svh - 89px); }
+  .play-layout { height: calc(100svh - 108px); }
+  .online-play-shell .play-layout { height: calc(100svh - 80px); }
   .play-shell > .practice-settings { margin-bottom: 3px; }
   .play-shell > .play-mode-bar { margin-bottom: 3px; }
   .player-seat { min-height: 42px; padding: 4px; }
