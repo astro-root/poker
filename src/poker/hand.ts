@@ -11,10 +11,11 @@ import { resolveShowdown, type ShowdownResult } from './showdown.ts';
 
 export type HandStage = 'preflop' | 'flop' | 'turn' | 'river' | 'complete';
 export type HandSeatInput = Readonly<{ id: string; stack: number }>;
-export type HandPlayer = Readonly<BettingPlayer & { holeCards: readonly [Card, Card] }>;
+export type HandPlayer = Readonly<BettingPlayer & { holeCards: readonly [Card, Card]; blindContribution?: number }>;
+export type UncalledReturn = Readonly<{ playerId: string; amount: number }>;
 export type HandResult =
-  | Readonly<{ type: 'showdown'; settlement: ShowdownResult }>
-  | Readonly<{ type: 'uncontested'; winnerId: string; pot: number; payouts: Readonly<Record<string, number>> }>;
+  | Readonly<{ type: 'showdown'; settlement: ShowdownResult; returned: UncalledReturn | null }>
+  | Readonly<{ type: 'uncontested'; winnerId: string; pot: number; payouts: Readonly<Record<string, number>>; returned: UncalledReturn | null }>;
 
 export type HandPlayerView = Readonly<{
   id: string;
@@ -90,43 +91,79 @@ function withRound(hand: PokerHand, bettingRound: BettingRound | null): PokerHan
   };
 }
 
-function settleUncontested(hand: PokerHand, winner: HandPlayer): PokerHand {
-  const pot = hand.players.reduce((sum, player) => sum + player.totalContribution, 0);
-  if (!Number.isSafeInteger(pot)) throw new Error('Pot exceeds the safe integer range');
-  const payouts = Object.fromEntries(hand.players.map((player) => [player.id, player.id === winner.id ? pot : 0]));
+function returnUncalled(hand: PokerHand): { hand: PokerHand; returned: UncalledReturn | null } {
+  const ranked = [...hand.players].sort((left, right) => right.totalContribution - left.totalContribution);
+  const highest = ranked[0];
+  if (!highest || highest.totalContribution === 0) return { hand, returned: null };
+  const nextHighest = ranked[1]?.totalContribution ?? 0;
+  const blindContribution = highest.blindContribution;
+  if (!Number.isSafeInteger(blindContribution)) return { hand, returned: null };
+  const amount = Math.min(highest.totalContribution - nextHighest,
+    Math.max(0, highest.totalContribution - blindContribution!));
+  if (amount <= 0) return { hand, returned: null };
   return {
-    ...hand,
+    hand: {
+      ...hand,
+      players: hand.players.map((player) => player.id === highest.id
+        ? { ...player, stack: player.stack + amount, totalContribution: player.totalContribution - amount,
+          streetContribution: Math.max(0, player.streetContribution - amount) }
+        : player),
+    },
+    returned: { playerId: highest.id, amount },
+  };
+}
+
+function settleUncontested(hand: PokerHand, winner: HandPlayer): PokerHand {
+  const refund = returnUncalled(hand);
+  const adjusted = refund.hand;
+  const pot = adjusted.players.reduce((sum, player) => sum + player.totalContribution, 0);
+  if (!Number.isSafeInteger(pot)) throw new Error('Pot exceeds the safe integer range');
+  const payouts = Object.fromEntries(adjusted.players.map((player) => [player.id, player.id === winner.id ? pot : 0]));
+  return {
+    ...adjusted,
     stage: 'complete',
     bettingRound: null,
-    players: hand.players.map((player) => ({
+    players: adjusted.players.map((player) => ({
       ...player,
       stack: player.stack + payouts[player.id]!,
       streetContribution: 0,
       totalContribution: 0,
     })),
-    result: { type: 'uncontested', winnerId: winner.id, pot, payouts },
+    result: { type: 'uncontested', winnerId: winner.id, pot, payouts, returned: refund.returned },
   };
 }
 
 function settleShowdown(hand: PokerHand): PokerHand {
-  const settlement = resolveShowdown(hand.players.map((player) => ({
+  const refund = returnUncalled(hand);
+  const adjusted = refund.hand;
+  const settlement = resolveShowdown(adjusted.players.map((player) => ({
     playerId: player.id,
     amount: player.totalContribution,
     folded: player.folded,
     holeCards: player.holeCards,
-  })), hand.board, hand.buttonPlayerId);
+  })), adjusted.board, adjusted.buttonPlayerId);
   return {
-    ...hand,
+    ...adjusted,
     stage: 'complete',
     bettingRound: null,
-    players: hand.players.map((player) => ({
+    players: adjusted.players.map((player) => ({
       ...player,
       stack: player.stack + settlement.payouts[player.id]!,
       streetContribution: 0,
       totalContribution: 0,
     })),
-    result: { type: 'showdown', settlement },
+    result: { type: 'showdown', settlement, returned: refund.returned },
   };
+}
+
+function needsBettingAction(players: readonly HandPlayer[], firstActorId: string | null): boolean {
+  const actionable = players.filter((player) => !player.folded && player.stack > 0);
+  if (actionable.length > 1) return true;
+  if (actionable.length === 0 || !firstActorId) return false;
+  const actor = actionable[0]!;
+  const highestOtherContribution = Math.max(0, ...players.filter((player) => player.id !== actor.id)
+    .map((player) => player.totalContribution));
+  return highestOtherContribution > actor.totalContribution;
 }
 
 function revealNextStreet(hand: PokerHand): PokerHand {
@@ -168,7 +205,7 @@ function advance(hand: PokerHand): PokerHand {
     if (next.stage === 'river') return settleShowdown(next);
     next = revealNextStreet(next);
     const firstActor = nextPlayerId(next.players, next.buttonPlayerId, (player) => !player.folded && player.stack > 0);
-    if (firstActor) {
+    if (firstActor && needsBettingAction(next.players, firstActor)) {
       const bettingRound = createBettingRound(toBettingPlayers(next.players), firstActor, next.bigBlind);
       return withRound(next, bettingRound);
     }
@@ -215,8 +252,9 @@ export function startHand(
   const posted: HandPlayer[] = withSmallBlind.map((player) => player.id === bigBlindId
     ? { ...postBlind(player, bigBlind), holeCards: player.holeCards }
     : player);
+  const withBlindContributions = posted.map((player) => ({ ...player, blindContribution: player.totalContribution }));
   const hand: PokerHand = {
-    players: posted,
+    players: withBlindContributions,
     buttonPlayerId,
     smallBlind,
     bigBlind,
@@ -226,8 +264,10 @@ export function startHand(
     bettingRound: null,
     result: null,
   };
-  const firstActor = nextPlayerId(posted, bigBlindId, (player) => !player.folded && player.stack > 0);
-  if (firstActor) return withRound(hand, createBettingRound(toBettingPlayers(posted), firstActor, bigBlind));
+  const firstActor = nextPlayerId(withBlindContributions, bigBlindId, (player) => !player.folded && player.stack > 0);
+  if (firstActor && needsBettingAction(withBlindContributions, firstActor)) {
+    return withRound(hand, createBettingRound(toBettingPlayers(withBlindContributions), firstActor, bigBlind));
+  }
   return advance(hand);
 }
 

@@ -167,6 +167,9 @@ function archiveCompletedHand(): void {
       const winners = pot.winnerIds.map(playerLabel).join('・');
       return `${index === 0 ? 'メイン' : `サイド${index}`} ${formatChips(pot.amount)}: ${winners}`;
     }).join(' / ');
+  const refundSummary = hand.result.returned
+    ? `未コール分 ${formatChips(hand.result.returned.amount)} チップを${playerLabel(hand.result.returned.playerId)}へ返却`
+    : '';
   const humanFinalStack = hand.players.find((player) => player.id === humanId)?.stack ?? humanStackAtHandStart;
   const chipsChange = humanFinalStack - humanStackAtHandStart;
   const outcome: ArchivedHand['outcome'] = chipsChange > 0 ? 'win' : chipsChange < 0 ? 'loss' : 'draw';
@@ -175,7 +178,7 @@ function archiveCompletedHand(): void {
     completedAt: new Date().toISOString(),
     actions: [...handHistory],
     board: hand.board.map(cardLabel),
-    result,
+    result: refundSummary ? `${result} / ${refundSummary}` : result,
     outcome,
     chipsChange,
   }, ...recentHands].slice(0, 10);
@@ -845,6 +848,9 @@ function render(): void {
       });
     } else if (result?.type === 'uncontested') {
       actionPanel.append(node('p', 'result-copy', `${playerLabel(result.winnerId)}が全員のフォールドでポット ${formatChips(result.pot)} を獲得しました。`));
+    }
+    if (result?.returned) {
+      actionPanel.append(node('p', 'result-copy', `未コール分 ${formatChips(result.returned.amount)} チップを${playerLabel(result.returned.playerId)}へ返却しました。`));
     }
     const canContinue = (table.seats.find((seat) => seat.id === humanId)?.stack ?? 0) > 0
       && table.seats.filter((seat) => seat.stack > 0).length >= 2;

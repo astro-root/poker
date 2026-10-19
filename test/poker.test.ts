@@ -201,6 +201,34 @@ test('runs out the board when both players are all-in from the blinds', () => {
   assert.equal(hand.players.reduce((sum, player) => sum + player.stack, 0), 10);
 });
 
+test('returns an unmatched heads-up raise and runs out without a redundant action', () => {
+  let table = startNextHand(createTable([{ id: 'a', stack: 1_000 }, { id: 'b', stack: 100 }], 5, 10));
+  table = applyTableAction(table, table.version, 'a', { type: 'raise', to: 500 });
+  table = applyTableAction(table, table.version, 'b', { type: 'all-in' });
+
+  assert.equal(table.hand?.stage, 'complete');
+  assert.equal(table.hand?.board.length, 5);
+  assert.equal(table.hand?.result?.type === 'showdown' ? table.hand.result.returned?.amount : 0, 400);
+  assert.equal(table.hand?.result?.type === 'showdown' ? table.hand.result.returned?.playerId : '', 'a');
+  assert.equal(table.seats.reduce((sum, seat) => sum + seat.stack, 0), 1_100);
+  assert.equal(table.hand?.players.reduce((sum, p) => sum + p.stack, 0), 1_100);
+});
+
+test('automatically runs out when one player covers multiple short all-ins', () => {
+  let table = startNextHand(createTable([
+    { id: 'a', stack: 1_000 }, { id: 'b', stack: 100 }, { id: 'c', stack: 200 },
+  ], 5, 10));
+  table = applyTableAction(table, table.version, 'a', { type: 'raise', to: 500 });
+  table = applyTableAction(table, table.version, 'b', { type: 'all-in' });
+  table = applyTableAction(table, table.version, 'c', { type: 'all-in' });
+
+  assert.equal(table.hand?.stage, 'complete');
+  assert.equal(table.hand?.board.length, 5);
+  assert.equal(table.hand?.result?.type === 'showdown' ? table.hand.result.returned?.amount : 0, 300);
+  assert.equal(table.hand?.result?.type === 'showdown' ? table.hand.result.returned?.playerId : '', 'a');
+  assert.equal(table.seats.reduce((sum, seat) => sum + seat.stack, 0), 1_300);
+});
+
 test('public hand views hide opponents’ cards and the undealt deck', () => {
   const hand = startHand([{ id: 'button', stack: 100 }, { id: 'big-blind', stack: 100 }], 0, 5, 10);
   const view = getPublicHandView(hand, 'button');
@@ -215,7 +243,7 @@ test('awards the pot immediately after every opponent folds', () => {
   hand = applyHandAction(hand, 'button', { type: 'fold' });
   hand = applyHandAction(hand, 'small-blind', { type: 'fold' });
   assert.equal(hand.stage, 'complete');
-  assert.deepEqual(hand.result, { type: 'uncontested', winnerId: 'big-blind', pot: 15, payouts: { button: 0, 'small-blind': 0, 'big-blind': 15 } });
+  assert.deepEqual(hand.result, { type: 'uncontested', winnerId: 'big-blind', pot: 15, payouts: { button: 0, 'small-blind': 0, 'big-blind': 15 }, returned: null });
   assert.equal(getHandPot(hand), 0);
   assert.equal(hand.players.reduce((sum, player) => sum + player.stack, 0), 300);
 });
