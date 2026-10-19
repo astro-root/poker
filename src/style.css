@@ -713,6 +713,8 @@ body {
 .dealer-button { border-color: #ead28c; background: #fcf5de; color: #483d25; }
 .notice-bar { border-color: #38513f; color: #c0cbbf; }
 .notice-dot { background: #e7c666; box-shadow: 0 0 0 3px #e7c66624; }
+.notice-error { color: #ffd1bd; }
+.notice-error .notice-dot { background: #e88167; box-shadow: 0 0 0 3px #e8816728; }
 .equity-strip { border-color: #d6bb6b66; background: #082f20cc; }
 
 .action-panel, .lobby-panel {

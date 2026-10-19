@@ -223,8 +223,9 @@ function performAction(action: BettingAction): void {
     render();
     void submitRoomAction(onlineRoomId, table.version, action).then(applyOnlineRoom).catch((error: unknown) => {
       onlineError = error instanceof Error ? error.message : '操作を反映できませんでした。';
+      render();
       void refreshOnlineRoom();
-    }).finally(() => { onlinePending = false; });
+    }).finally(() => { onlinePending = false; render(); });
     return;
   }
   try {
@@ -268,6 +269,7 @@ async function closeOnlineSession(): Promise<void> {
 }
 
 function applyOnlineRoom(room: OnlineRoom): void {
+  onlineError = '';
   onlineRoomId = room.roomId;
   onlineHost = room.hostId === humanId;
   onlineStarted = room.status === 'playing';
@@ -290,7 +292,11 @@ function applyOnlineRoom(room: OnlineRoom): void {
 async function refreshOnlineRoom(): Promise<void> {
   if (!onlineRoomId || onlinePending) return;
   try { applyOnlineRoom(await readRoom(onlineRoomId)); }
-  catch (error) { onlineError = error instanceof Error ? error.message : 'ルーム状態を取得できませんでした。'; }
+  catch (error) {
+    onlineError = error instanceof Error ? error.message : 'ルーム状態を取得できませんでした。';
+    if (appMode === 'online-lobby') renderOnlineLobby();
+    else render();
+  }
 }
 
 function startOnlinePolling(): void {
@@ -625,9 +631,10 @@ function render(): void {
   tableCard.append(felt);
 
   const noticeBar = node('div', 'notice-bar');
+  noticeBar.classList.toggle('notice-error', Boolean(onlineError));
   noticeBar.setAttribute('role', 'status');
   noticeBar.setAttribute('aria-live', 'polite');
-  noticeBar.append(node('span', 'notice-dot'), node('span', '', notice));
+  noticeBar.append(node('span', 'notice-dot'), node('span', '', onlineError || notice));
   tableCard.append(noticeBar);
   playLayout.append(tableCard);
 
@@ -704,8 +711,9 @@ function render(): void {
             onlinePending = true;
             void nextRoomHand(onlineRoomId, table!.version).then(applyOnlineRoom).catch((error: unknown) => {
               onlineError = error instanceof Error ? error.message : '次のハンドを開始できませんでした。';
+              render();
               void refreshOnlineRoom();
-            }).finally(() => { onlinePending = false; });
+            }).finally(() => { onlinePending = false; render(); });
           }
         } else if (canContinue) {
           humanStackAtHandStart = table!.seats.find((seat) => seat.id === humanId)?.stack ?? 0;
