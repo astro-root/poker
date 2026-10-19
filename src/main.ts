@@ -7,7 +7,7 @@ import { evaluateHand, HAND_NAMES, type HandCategory } from './poker/evaluator.t
 import { estimateEquity, type EquityEstimate } from './poker/equity.ts';
 import { explainHand, getCallBreakEvenProbability, POKER_GLOSSARY } from './poker/education.ts';
 import { initializeGuestIdentity } from './supabase/client.ts';
-import { createRoom, joinRoom, leaveRoom, nextRoomHand, readRoom, startRoom as startServerRoom, submitRoomAction, type OnlineRoom, type RoomPeer } from './supabase/online-room.ts';
+import { createRoom, joinRoom, leaveRoom, leaveRoomKeepalive, nextRoomHand, readRoom, startRoom as startServerRoom, submitRoomAction, type OnlineRoom, type RoomPeer } from './supabase/online-room.ts';
 import './style.css';
 
 let humanId = '';
@@ -58,6 +58,9 @@ let onlinePeers: RoomPeer[] = [];
 let onlineNames = new Map<string, string>();
 let onlinePollTimer: number | undefined;
 let onlinePending = false;
+window.addEventListener('pagehide', () => {
+  if (onlineRoomId) leaveRoomKeepalive(onlineRoomId);
+});
 
 function playerLabel(id: string): string {
   if (id === humanId) return playerName;
@@ -626,8 +629,8 @@ function renderOnlineLobby(): void {
     const roster = node('ul', 'lobby-roster');
     for (const peer of onlinePeers) {
       const item = node('li', 'lobby-player');
-      item.append(node('span', 'lobby-presence'), node('strong', '', peer.id === humanId ? `${peer.name}（あなた）` : peer.name));
-      item.append(node('span', 'lobby-connection', '参加中'));
+      item.append(node('span', `lobby-presence ${peer.connected ? 'is-connected' : 'is-disconnected'}`), node('strong', '', peer.id === humanId ? `${peer.name}（あなた）` : peer.name));
+      item.append(node('span', 'lobby-connection', peer.connected ? '在席' : '離席'));
       roster.append(item);
     }
     if (!onlinePeers.length) roster.append(node('li', 'lobby-empty', '参加者を確認しています…'));
@@ -854,8 +857,9 @@ function render(): void {
     }
     const canContinue = (table.seats.find((seat) => seat.id === humanId)?.stack ?? 0) > 0
       && table.seats.filter((seat) => seat.stack > 0).length >= 2;
-    const hostCanContinue = appMode !== 'online-playing' || (onlineHost && canContinue);
-    const nextButton = node('button', 'action-button primary-action', appMode === 'online-playing' && !onlineHost ? 'ホストが次のハンドを開始します' : canContinue ? '次のハンドへ' : 'トーナメントを再開');
+    const connectedPlayer = appMode !== 'online-playing' || onlinePeers.some((peer) => peer.id === humanId && peer.connected);
+    const hostCanContinue = appMode !== 'online-playing' || (connectedPlayer && canContinue);
+    const nextButton = node('button', 'action-button primary-action', canContinue ? '次のハンドへ' : '次のハンドを開始できません');
     nextButton.type = 'button';
     nextButton.disabled = !hostCanContinue || onlinePending;
     nextButton.addEventListener('click', () => {

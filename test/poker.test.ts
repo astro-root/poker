@@ -5,7 +5,7 @@ import { compareHands, evaluateHand } from '../src/poker/evaluator.ts';
 import { buildPots, splitPot } from '../src/poker/pots.ts';
 import { applyBettingAction, createBettingRound, getLegalActions, postBlind, type BettingAction, type BettingPlayer } from '../src/poker/betting.ts';
 import { resolveShowdown } from '../src/poker/showdown.ts';
-import { applyHandAction, getHandPot, getPublicHandView, startHand } from '../src/poker/hand.ts';
+import { applyHandAction, foldHandPlayer, getHandPot, getPublicHandView, startHand } from '../src/poker/hand.ts';
 import { applyTableAction, createTable, getPublicTableView, startNextHand } from '../src/poker/table.ts';
 import { createGuestCredential, createRoom, finishRoomGame, joinRoom, leaveRoom, listPublicRooms, startRoomGame, verifyGuestSession } from '../src/poker/rooms.ts';
 import { applyAiTurn, chooseAiAction, estimateAiHandStrength } from '../src/poker/ai.ts';
@@ -190,6 +190,15 @@ test('posts multiway blinds and gives the big blind its preflop option', () => {
   hand = applyHandAction(hand, 'big-blind', { type: 'check' });
   assert.equal(hand.stage, 'flop');
   assert.equal(hand.bettingRound?.actorId, 'small-blind');
+});
+
+test('folds a departing player immediately even when it is not their turn', () => {
+  const hand = startHand([{ id: 'a', stack: 100 }, { id: 'b', stack: 100 }, { id: 'c', stack: 100 }], 0, 5, 10);
+  assert.equal(hand.bettingRound?.actorId, 'a');
+  const folded = foldHandPlayer(hand, 'c');
+  assert.equal(folded.players.find((player) => player.id === 'c')?.folded, true);
+  assert.equal(folded.bettingRound?.actorId, 'a');
+  assert.equal(folded.players.reduce((sum, player) => sum + player.stack + player.totalContribution, 0), 300);
 });
 
 test('runs out the board when both players are all-in from the blinds', () => {

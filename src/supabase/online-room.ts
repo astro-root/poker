@@ -1,6 +1,6 @@
 import type { BettingAction } from '../poker/betting.ts';
 import type { TableState } from '../poker/table.ts';
-import { supabase } from './client.ts';
+import { getCachedAccessToken, supabase, supabasePublishableKey, supabaseUrl } from './client.ts';
 
 export type RoomPeer = Readonly<{ id: string; name: string; connected: boolean }>;
 export type OnlineRoom = Readonly<{
@@ -30,6 +30,17 @@ export const submitRoomAction = (roomId: string, expectedVersion: number, action
 export const nextRoomHand = (roomId: string, expectedVersion: number): Promise<OnlineRoom> =>
   request('next-hand', { roomId, expectedVersion });
 export const leaveRoom = (roomId: string): Promise<OnlineRoom | null> => request('leave', { roomId });
+
+export function leaveRoomKeepalive(roomId: string): void {
+  const accessToken = getCachedAccessToken();
+  if (!supabase || !supabaseUrl || !supabasePublishableKey || !accessToken) return;
+  void fetch(`${supabaseUrl}/functions/v1/rooms`, {
+    method: 'POST',
+    headers: { apikey: supabasePublishableKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'leave', roomId }),
+    keepalive: true,
+  }).catch(() => undefined);
+}
 
 export function createRoomId(): string {
   const bytes = new Uint8Array(18);

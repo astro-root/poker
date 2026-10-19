@@ -192,6 +192,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .lobby-roster { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .lobby-player { display: flex; min-height: 42px; align-items: center; gap: 8px; border: 1px solid #dce1d7; border-radius: 7px; background: #fffefa; padding: 7px 9px; }
 .lobby-presence { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: #4eaa6b; box-shadow: 0 0 0 3px #4eaa6b1c; }
+.lobby-presence.is-disconnected { background: #9a8175; box-shadow: 0 0 0 3px #9a81751c; }
 .lobby-player strong { min-width: 0; overflow: hidden; color: #3c5140; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .lobby-connection { margin-left: auto; color: #7b867b; font-size: 8px; }
 .lobby-empty { padding: 9px 0; color: #778276; font-size: 9px; list-style: none; }

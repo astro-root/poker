@@ -2,6 +2,7 @@ import { createDeck, deal, shuffle, type Card } from './cards.ts';
 import {
   applyBettingAction,
   createBettingRound,
+  foldBettingPlayer,
   postBlind,
   type BettingAction,
   type BettingPlayer,
@@ -274,6 +275,14 @@ export function startHand(
 export function applyHandAction(hand: PokerHand, playerId: string, action: BettingAction): PokerHand {
   if (!hand.bettingRound || hand.stage === 'complete') throw new Error('This hand is not accepting actions');
   const bettingRound = applyBettingAction(hand.bettingRound, playerId, action);
+  const next = withRound(hand, bettingRound);
+  return bettingRound.complete ? advance({ ...next, bettingRound: null }) : next;
+}
+
+/** Folds a player who left the room, even if their seat was not the current actor. */
+export function foldHandPlayer(hand: PokerHand, playerId: string): PokerHand {
+  if (!hand.bettingRound || hand.stage === 'complete') return hand;
+  const bettingRound = foldBettingPlayer(hand.bettingRound, playerId);
   const next = withRound(hand, bettingRound);
   return bettingRound.complete ? advance({ ...next, bettingRound: null }) : next;
 }

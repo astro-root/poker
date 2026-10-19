@@ -215,6 +215,33 @@ export function applyBettingAction(round: BettingRound, playerId: string, action
   return finishOrAdvance(players, pending, raiseAllowed, currentBet, minRaise, playerId);
 }
 
+/** Folds a seated player immediately, including when they leave outside their turn. */
+export function foldBettingPlayer(round: BettingRound, playerId: string): BettingRound {
+  if (round.complete) return round;
+  const target = round.players.find((player) => player.id === playerId);
+  if (!target) throw new Error('Player is not in this betting round');
+  if (target.folded) return round;
+  const players = round.players.map((player) => player.id === playerId ? { ...player, folded: true } : { ...player });
+  const pending = round.pendingPlayerIds.filter((id) => id !== playerId);
+  const eligiblePending = pending.filter((id) => {
+    const player = players.find((candidate) => candidate.id === id)!;
+    return !player.folded && player.stack > 0;
+  });
+  const live = players.filter((player) => !player.folded);
+  const next = round.actorId === playerId
+    ? nextActor(players, eligiblePending, playerId)
+    : round.actorId;
+  const complete = live.length <= 1 || eligiblePending.length === 0 || next === null;
+  return {
+    ...round,
+    players,
+    actorId: complete ? null : next,
+    pendingPlayerIds: eligiblePending,
+    raiseAllowedPlayerIds: round.raiseAllowedPlayerIds.filter((id) => eligiblePending.includes(id)),
+    complete,
+  };
+}
+
 /** Posts a blind, including a short blind when the player is all-in. */
 export function postBlind(player: BettingPlayer, nominalAmount: number): BettingPlayer {
   if (!Number.isSafeInteger(nominalAmount) || nominalAmount < 0) throw new RangeError('Blind must be a non-negative safe integer');
