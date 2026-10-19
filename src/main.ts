@@ -12,6 +12,8 @@ const aiId = 'table-ai';
 const app = document.querySelector<HTMLElement>('#app');
 if (!app) throw new Error('Application root is missing');
 
+const playerNameKey = 'poker-practice-player-name';
+let playerName = loadPlayerName();
 let table: TableState | null = null;
 let aiTimer: number | undefined;
 let aiThinking = false;
@@ -26,6 +28,14 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string,
 
 function formatChips(amount: number): string {
   return new Intl.NumberFormat('ja-JP').format(amount);
+}
+
+function loadPlayerName(): string {
+  try {
+    return globalThis.localStorage.getItem(playerNameKey)?.trim().slice(0, 20) || 'あなた';
+  } catch {
+    return 'あなた';
+  }
 }
 
 function cardLabel(card: Card): string {
@@ -64,7 +74,7 @@ function performAction(action: BettingAction): void {
   if (!table || !table.hand || table.hand.stage === 'complete' || aiThinking) return;
   try {
     table = applyTableAction(table, table.version, humanId, action);
-    notice = actionNotice('あなた', action);
+    notice = actionNotice(playerName, action);
     render();
     runAiIfNeeded();
   } catch (error) {
@@ -142,7 +152,21 @@ function render(): void {
   const brand = node('a', 'brand', 'POKER TABLE');
   brand.href = '/';
   brand.setAttribute('aria-label', 'ポーカーテーブル ホーム');
-  header.append(brand, node('span', 'practice-tag', '練習テーブル'));
+  const playerControl = node('label', 'player-name-control');
+  playerControl.append(node('span', '', '名前'));
+  const playerNameInput = node('input', 'player-name-input') as HTMLInputElement;
+  playerNameInput.type = 'text';
+  playerNameInput.value = playerName;
+  playerNameInput.maxLength = 20;
+  playerNameInput.setAttribute('autocomplete', 'nickname');
+  playerNameInput.setAttribute('aria-label', 'プレイヤー名');
+  playerNameInput.addEventListener('change', () => {
+    playerName = playerNameInput.value.trim().slice(0, 20) || 'あなた';
+    try { globalThis.localStorage.setItem(playerNameKey, playerName); } catch { /* Storage can be unavailable in private browsing. */ }
+    render();
+  });
+  playerControl.append(playerNameInput);
+  header.append(brand, playerControl, node('span', 'practice-tag', '練習テーブル'));
   shell.append(header);
 
   const intro = node('section', 'intro');
@@ -174,7 +198,7 @@ function render(): void {
   felt.append(center);
 
   const human = view.hand?.players.find((player) => player.id === humanId);
-  felt.append(renderSeat('あなた', human, isHumanTurn, true, table.buttonPlayerId === humanId));
+  felt.append(renderSeat(playerName, human, isHumanTurn, true, table.buttonPlayerId === humanId));
   tableCard.append(felt);
 
   const noticeBar = node('div', 'notice-bar');
@@ -215,10 +239,10 @@ function render(): void {
   if (hand.stage === 'complete') {
     const result = hand.result;
     if (result?.type === 'showdown') {
-      const winners = Object.entries(result.settlement.payouts).filter(([, amount]) => amount > 0).map(([id, amount]) => `${id === humanId ? 'あなた' : '相手'} +${formatChips(amount)}`).join('　');
+      const winners = Object.entries(result.settlement.payouts).filter(([, amount]) => amount > 0).map(([id, amount]) => `${id === humanId ? playerName : '相手'} +${formatChips(amount)}`).join('　');
       actionPanel.append(node('p', 'result-copy', winners || 'ショーダウンが終了しました。'));
     } else if (result?.type === 'uncontested') {
-      actionPanel.append(node('p', 'result-copy', `${result.winnerId === humanId ? 'あなた' : '相手'}が全員のフォールドでポット ${formatChips(result.pot)} を獲得しました。`));
+      actionPanel.append(node('p', 'result-copy', `${result.winnerId === humanId ? playerName : '相手'}が全員のフォールドでポット ${formatChips(result.pot)} を獲得しました。`));
     }
     const canContinue = table.seats.filter((seat) => seat.stack > 0).length >= 2;
     const nextButton = node('button', 'action-button primary-action', canContinue ? '次のハンドへ' : '最初から遊ぶ');
