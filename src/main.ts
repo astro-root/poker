@@ -941,8 +941,12 @@ function render(): void {
         notice = 'あなたの番です。';
         render();
         if (appMode !== 'online-playing') runAiIfNeeded();
-      } catch {
-        startGame();
+      } catch (error) {
+        if (appMode === 'online-playing') {
+          onlineError = error instanceof Error ? error.message : '次のハンドを開始できませんでした。';
+          render();
+          void refreshOnlineRoom();
+        } else startGame();
       }
     });
     if (!onlineWinnerId) actionPanel.append(nextButton);
