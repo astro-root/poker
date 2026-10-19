@@ -18,6 +18,7 @@ let table: TableState | null = null;
 let aiTimer: number | undefined;
 let aiThinking = false;
 let notice = 'あなたの番です。合法なアクションを選んでください。';
+let handHistory: string[] = [];
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
   const element = document.createElement(tag);
@@ -66,6 +67,7 @@ function startGame(): void {
     { id: aiId, stack: 1_000 },
   ], 5, 10);
   table = startNextHand(table);
+  handHistory = [];
   notice = 'あなたの番です。チェック、コール、レイズなどを選べます。';
   render();
 }
@@ -73,8 +75,10 @@ function startGame(): void {
 function performAction(action: BettingAction): void {
   if (!table || !table.hand || table.hand.stage === 'complete' || aiThinking) return;
   try {
+    const actionStage = stageLabel(table.hand.stage);
     table = applyTableAction(table, table.version, humanId, action);
     notice = actionNotice(playerName, action);
+    handHistory.push(`${actionStage} · ${notice}`);
     render();
     runAiIfNeeded();
   } catch (error) {
@@ -109,6 +113,7 @@ function runAiIfNeeded(): void {
       return;
     }
     try {
+      const actionStage = stageLabel(hand.stage);
       const action = chooseAiAction({
         playerId: aiId,
         holeCards: player.holeCards,
@@ -121,6 +126,7 @@ function runAiIfNeeded(): void {
       });
       table = applyTableAction(table, table.version, aiId, action);
       notice = actionNotice('相手', action);
+      handHistory.push(`${actionStage} · ${notice}`);
     } catch (error) {
       notice = error instanceof Error ? error.message : '相手の操作を反映できませんでした。';
     }
@@ -207,6 +213,15 @@ function render(): void {
   noticeBar.append(node('span', 'notice-dot'), node('span', '', notice));
   tableCard.append(noticeBar);
   shell.append(tableCard);
+
+  const historyDetails = node('details', 'hand-history');
+  const historySummary = node('summary', '', `このハンドの履歴 (${handHistory.length})`);
+  historyDetails.append(historySummary);
+  const historyList = node('ol', 'history-list');
+  if (handHistory.length === 0) historyList.append(node('li', 'history-empty', '最初のアクション後にここへ記録されます。'));
+  else for (const event of handHistory) historyList.append(node('li', '', event));
+  historyDetails.append(historyList);
+  shell.append(historyDetails);
 
   if (me && hand.board.length >= 3 && hand.stage !== 'complete') {
     const evaluated = evaluateHand([...me.holeCards, ...hand.board]);
