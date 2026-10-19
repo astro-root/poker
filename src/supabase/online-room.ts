@@ -7,24 +7,28 @@ export type OnlineRoom = Readonly<{
   roomId: string;
   hostId: string;
   status: 'waiting' | 'playing' | 'finished';
+  revision: number;
   winnerId: string | null;
   version: number;
   peers: readonly RoomPeer[];
   table: TableState | null;
   notice: string;
 }>;
+export type UnchangedRoom = Readonly<{ unchanged: true; revision: number }>;
 
 async function request<T>(action: string, args: Record<string, unknown> = {}): Promise<T> {
   if (!supabase) throw new Error('オンライン対戦を利用するには Supabase の設定が必要です。');
   const { data, error } = await supabase.functions.invoke('rooms', { body: { action, ...args } });
   if (error) throw new Error(error.message || 'ルームサーバーに接続できませんでした。');
   if (!data?.ok) throw new Error(typeof data?.error === 'string' ? data.error : 'リクエストを完了できませんでした。');
+  if (data.unchanged === true) return data as T;
   return data.room as T;
 }
 
 export const createRoom = (name: string): Promise<OnlineRoom> => request('create', { name });
 export const joinRoom = (roomId: string, name: string): Promise<OnlineRoom> => request('join', { roomId, name });
-export const readRoom = (roomId: string): Promise<OnlineRoom> => request('state', { roomId });
+export const readRoom = (roomId: string, sinceRevision?: number): Promise<OnlineRoom | UnchangedRoom> =>
+  request('state', { roomId, ...(sinceRevision === undefined ? {} : { sinceRevision }) });
 export const startRoom = (roomId: string): Promise<OnlineRoom> => request('start', { roomId });
 export const submitRoomAction = (roomId: string, expectedVersion: number, action: BettingAction): Promise<OnlineRoom> =>
   request('action', { roomId, expectedVersion, pokerAction: action });

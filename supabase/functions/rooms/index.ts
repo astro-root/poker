@@ -68,6 +68,32 @@ function parseExpectedVersion(value: unknown): number {
   return value as number;
 }
 
+function verifiedUserId(request: Request): string {
+  const authorization = request.headers.get('Authorization') ?? '';
+  const token = authorization.replace(/^Bearer\s+/iu, '');
+  const payload = token.split('.')[1];
+  if (!payload) throw new RoomError(401, 'ログイン状態を確認できません。');
+  try {
+    const base64 = payload.replace(/-/gu, '+').replace(/_/gu, '/');
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+    const decoded = Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
+    const claims = JSON.parse(new TextDecoder().decode(decoded)) as { sub?: unknown };
+    if (typeof claims.sub !== 'string' || !claims.sub) throw new Error('JWT subject is missing');
+    // Supabase's verify_jwt=true validates the signature before this handler runs; this only reads the verified subject.
+    return claims.sub;
+  } catch {
+    throw new RoomError(401, 'ログイン状態を確認できません。');
+  }
+}
+
+async function enforceUserRateLimit(url: string, serviceKey: string, userId: string, now: number): Promise<void> {
+  const allowed = await supabaseRequest<boolean>(url, serviceKey, '/rest/v1/rpc/consume_room_rate_limit', {
+    method: 'POST',
+    body: JSON.stringify({ p_user_id: userId, p_now: new Date(now).toISOString(), p_limit: 10, p_window_ms: 1_000 }),
+  });
+  if (!allowed) throw new RoomError(429, '操作が多すぎます。少し待ってからもう一度お試しください。');
+}
+
 async function supabaseRequest<T>(url: string, key: string, path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set('apikey', key);
@@ -97,6 +123,16 @@ async function saveRoom(url: string, serviceKey: string, row: RoomRow, state: Ro
       method: 'PATCH',
       headers: { Prefer: 'return=representation' },
       body: JSON.stringify({ state, status, revision: row.revision + 1, updated_at: new Date().toISOString() }),
+    });
+  return rows[0] ?? null;
+}
+
+async function touchRoom(url: string, serviceKey: string, row: RoomRow, state: RoomState): Promise<RoomRow | null> {
+  const rows = await supabaseRequest<RoomRow[]>(url, serviceKey,
+    `/rest/v1/poker_rooms?id=eq.${encodeURIComponent(row.id)}&revision=eq.${row.revision}&select=*`, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({ state, updated_at: new Date().toISOString() }),
     });
   return rows[0] ?? null;
 }
@@ -169,6 +205,7 @@ function publicRoom(row: RoomRow, viewerId: string, now: number) {
     roomId: row.id,
     hostId: row.host_user_id,
     status: row.status,
+    revision: row.revision,
     winnerId: room.winnerId ?? null,
     version: row.state.table?.version ?? 0,
     peers: room.members.map((member) => ({ id: member.id, name: member.name, connected: isConnected(member, now) })),
@@ -181,22 +218,9 @@ Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (request.method !== 'POST') return response({ ok: false, error: 'POST only' }, 405);
   try {
-    const authorization = request.headers.get('Authorization') ?? '';
-    const token = authorization.replace(/^Bearer\s+/iu, '');
-    if (!token) return response({ ok: false, error: 'ログイン状態を確認できません。' }, 401);
+    const userId = verifiedUserId(request);
     const url = Deno.env.get('SUPABASE_URL')!;
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    let authUser: { id: string };
-    try {
-      authUser = await supabaseRequest<{ id: string }>(url, anonKey, '/auth/v1/user', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    } catch {
-      return response({ ok: false, error: 'ログイン状態を確認できません。' }, 401);
-    }
-    if (!authUser?.id) return response({ ok: false, error: 'ログイン状態を確認できません。' }, 401);
-    const userId = authUser.id;
     let body: any;
     try { body = await request.json(); } catch {
       throw new RoomError(400, 'リクエストの形式が正しくありません。');
@@ -204,10 +228,17 @@ Deno.serve(async (request: Request) => {
     const action = body?.action;
     const now = Date.now();
 
+    if (action === 'create' || action === 'join' || action === 'action') {
+      await enforceUserRateLimit(url, serviceKey, userId, now);
+    }
+
     if (action === 'create') {
       try { await cleanupExpiredRooms(url, serviceKey, now); } catch (error) {
         console.error('room ttl cleanup failed', error);
       }
+      const openRooms = await supabaseRequest<Array<{ id: string }>>(url, serviceKey,
+        `/rest/v1/poker_rooms?host_user_id=eq.${encodeURIComponent(userId)}&status=neq.finished&select=id`);
+      if (openRooms.length >= 3) throw new RoomError(429, '未終了のルームは1人3件まで作成できます。');
       const bytes = new Uint8Array(18);
       crypto.getRandomValues(bytes);
       const id = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -298,8 +329,10 @@ Deno.serve(async (request: Request) => {
 
     row = { ...row, state: { ...row.state, members: row.state.members.map((member) => member.id === userId ? { ...member, lastSeenAt: now } : member) } };
     if (action === 'state') {
-      const saved = await saveRoom(url, serviceKey, row, row.state);
+      const unchanged = Number.isSafeInteger(body.sinceRevision) && body.sinceRevision === row.revision;
+      const saved = await touchRoom(url, serviceKey, row, row.state);
       if (!saved) return response({ ok: false, error: 'ルームの状態が更新されました。もう一度お試しください。' }, 409);
+      if (unchanged) return response({ ok: true, unchanged: true, revision: saved.revision });
       return response({ ok: true, room: publicRoom(saved, userId, now) });
     }
 

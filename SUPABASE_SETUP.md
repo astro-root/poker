@@ -10,6 +10,10 @@
 
 匿名ログインはSupabaseの[公式ガイド](https://supabase.com/docs/guides/auth/auth-anonymous)、キーの役割は[APIキーガイド](https://supabase.com/docs/guides/getting-started/api-keys)を参照してください。
 
+### 匿名ログインの不正利用対策
+
+Supabase Dashboard の **Authentication → Rate Limits** で Anonymous Sign-Ins の IP レート制限を確認し、利用規模に合う値へ調整してください。**Authentication → Bot and Abuse Protection → Enable CAPTCHA protection** から Turnstile または hCaptcha を設定できます。CAPTCHA を有効にする場合はクライアントがチャレンジトークンを送る実装も必要です。このアプリの現行クライアントは CAPTCHA トークンに未対応なので、連携を追加するまでは匿名ログインの CAPTCHA を有効にしないでください。設定画面と詳細は [Supabase Auth CAPTCHA ガイド](https://supabase.com/docs/guides/auth/auth-captcha) と [Auth Rate Limits](https://supabase.com/docs/guides/auth/rate-limits) を参照してください。
+
 ## DB と Edge Function のデプロイ
 
 DB作成は次のどちらか一方で行います。

@@ -21,7 +21,12 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
   let now = 1_800_000_000_000;
   Date.now = () => now;
   let handler: ((request: Request) => Promise<Response>) | undefined;
-  const identities: Record<string, string> = { host: 'host-user', guest: 'guest-user', outsider: 'outsider-user' };
+  const identities: Record<string, string> = { host: 'host-user', guest: 'guest-user', outsider: 'outsider-user', cap: 'cap-user' };
+  const rateCounts = new Map<string, { second: number; count: number }>();
+  const jwtFor = (alias: string) => {
+    const payload = btoa(JSON.stringify({ sub: identities[alias] ?? alias })).replace(/=/gu, '').replace(/\+/gu, '-').replace(/\//gu, '_');
+    return `header.${payload}.signature`;
+  };
   const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
   globalThis.fetch = async (input, init = {}) => {
@@ -31,6 +36,14 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
     if (url.pathname === '/auth/v1/user') {
       const token = new Headers(init.headers).get('Authorization')?.replace('Bearer ', '') ?? '';
       return reply(identities[token] ? { id: identities[token] } : { message: 'invalid token' }, identities[token] ? 200 : 401);
+    }
+    if (url.pathname === '/rest/v1/rpc/consume_room_rate_limit') {
+      const input = JSON.parse(String(init.body)) as { p_user_id: string };
+      const second = Math.floor(now / 1_000);
+      const previous = rateCounts.get(input.p_user_id);
+      const count = previous?.second === second ? previous.count + 1 : 1;
+      rateCounts.set(input.p_user_id, { second, count });
+      return reply(count <= 10);
     }
     if (url.pathname !== '/rest/v1/poker_rooms') return reply({ message: 'not found' }, 404);
     if (databaseFailure) return reply({ message: databaseFailure }, 500);
@@ -42,7 +55,15 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
       return reply([row], 201);
     }
     const id = url.searchParams.get('id')?.replace(/^eq\./u, '');
-    if (method === 'GET') return reply(id && rooms.has(id) ? [rooms.get(id)] : []);
+    if (method === 'GET') {
+      if (id) return reply(rooms.has(id) ? [rooms.get(id)] : []);
+      const hostId = url.searchParams.get('host_user_id')?.replace(/^eq\./u, '');
+      const statusFilter = url.searchParams.get('status')?.replace(/^(eq|neq)\./u, '');
+      const statusOperator = url.searchParams.get('status')?.split('.')[0];
+      const rows = [...rooms.values()].filter((row) => (!hostId || row.host_user_id === hostId)
+        && (!statusFilter || (statusOperator === 'eq' ? row.status === statusFilter : row.status !== statusFilter)));
+      return reply(url.searchParams.get('select') === 'id' ? rows.map((row) => ({ id: row.id })) : rows);
+    }
     if (method === 'PATCH') {
       const row = id ? rooms.get(id) : undefined;
       const expectedRevision = Number(url.searchParams.get('revision')?.replace(/^eq\./u, ''));
@@ -81,7 +102,7 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
     await import('../supabase/functions/rooms/index.ts');
     assert.ok(handler, 'Deno.serve should register the rooms request handler');
     const call = async (token: string, body: unknown) => handler!(new Request('https://edge.test/rooms', {
-      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      method: 'POST', headers: { Authorization: `Bearer ${jwtFor(token)}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     }));
 
     const createdResponse = await call('host', { action: 'create', name: 'ホスト' });
@@ -99,8 +120,16 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
     now += 16_000;
     const inactiveStart = await call('host', { action: 'start', roomId });
     assert.equal(inactiveStart.status, 409, 'start must exclude a member whose presence expired');
-    const reconnected = await call('guest', { action: 'state', roomId });
+    const stateRequestStart = requests.length;
+    const reconnected = await call('guest', { action: 'state', roomId, sinceRevision: rooms.get(roomId)!.revision });
     assert.equal(reconnected.status, 200);
+    const unchanged = await reconnected.json() as { unchanged?: boolean; revision?: number; room?: unknown };
+    assert.equal(unchanged.unchanged, true);
+    assert.equal(unchanged.revision, rooms.get(roomId)!.revision);
+    assert.equal('room' in unchanged, false);
+    const stateRequests = requests.slice(stateRequestStart);
+    assert.equal(stateRequests.length, 2, 'state polling should use only the room read and presence write');
+    assert.deepEqual(stateRequests.map((entry) => entry.method).sort(), ['GET', 'PATCH']);
 
     const startedResponse = await call('host', { action: 'start', roomId });
     assert.equal(startedResponse.status, 200);
@@ -163,12 +192,13 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
 
     rooms.get(roomId)!.state = startedStateForInputChecks;
     const table = rooms.get(roomId)!.state.table as { version: number; hand: { bettingRound: { actorId: string } } };
-    now = (rooms.get(roomId)!.state.table as { turnDeadline: number }).turnDeadline - 1;
+    now = (rooms.get(roomId)!.state.table as { turnDeadline: number }).turnDeadline - 30_000;
     const actorToken = table.hand.bettingRound.actorId === 'host-user' ? 'host' : 'guest';
     const invalidActions: unknown[] = [undefined, null, 'call', 42, {}, { type: 'bogus' }, { type: 'CALL' },
       { type: 'raise' }, { type: 'raise', to: '30' }, { type: 'raise', to: 30.5 },
       { type: 'raise', to: Number.NaN }, { type: 'raise', to: Number.POSITIVE_INFINITY }, { type: 'raise', to: -5 }];
     for (const pokerAction of invalidActions) {
+      now += 1_001;
       const revision = rooms.get(roomId)!.revision;
       const snapshot = JSON.stringify(rooms.get(roomId)!.state.table);
       const invalidResponse = await call(actorToken, { action: 'action', roomId, expectedVersion: table.version, pokerAction });
@@ -178,6 +208,7 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
     }
     const invalidVersions: unknown[] = [undefined, null, '2', 1.5, Number.NaN, Number.POSITIVE_INFINITY];
     for (const expectedVersion of invalidVersions) {
+      now += 1_001;
       const revision = rooms.get(roomId)!.revision;
       const snapshot = JSON.stringify(rooms.get(roomId)!.state.table);
       const invalidResponse = await call(actorToken, { action: 'action', roomId, expectedVersion, pokerAction: { type: 'call' } });
@@ -187,8 +218,10 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
     }
     const currentRevision = rooms.get(roomId)!.revision;
     const currentTable = JSON.stringify(rooms.get(roomId)!.state.table);
+    now += 1_001;
     const illegalAction = await call(actorToken, { action: 'action', roomId, expectedVersion: table.version, pokerAction: { type: 'raise', to: 0 } });
     assert.equal(illegalAction.status, 422);
+    now += 1_001;
     const staleAction = await call(actorToken, { action: 'action', roomId, expectedVersion: table.version - 1, pokerAction: { type: 'call' } });
     assert.equal(staleAction.status, 409);
     assert.equal(rooms.get(roomId)!.revision, currentRevision);
@@ -269,6 +302,26 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
     assert.equal(cleanupTrigger.status, 200);
     assert.equal(rooms.has(staleWaitingId), false);
     assert.equal(rooms.has(staleFinishedId), false);
+
+    const cappedRooms: string[] = [];
+    for (let index = 0; index < 3; index++) {
+      const capped = await call('cap', { action: 'create', name: `上限${index}` });
+      assert.equal(capped.status, 200);
+      cappedRooms.push(((await capped.json()) as { room: { roomId: string } }).room.roomId);
+    }
+    const overLimitRoom = await call('cap', { action: 'create', name: '上限超過' });
+    assert.equal(overLimitRoom.status, 429);
+    assert.equal(cappedRooms.filter((id) => rooms.has(id)).length, 3);
+
+    const rateStatuses: number[] = [];
+    for (let index = 0; index < 11; index++) {
+      const limited = await call('outsider', { action: 'action', roomId: 'invalid', expectedVersion: 0, pokerAction: { type: 'call' } });
+      rateStatuses.push(limited.status);
+    }
+    assert.deepEqual(rateStatuses.slice(0, 10), Array(10).fill(400));
+    assert.equal(rateStatuses[10], 429);
+    assert.equal(requests.some((entry) => entry.url.includes('/auth/v1/user')), false,
+      'verified JWT claims should replace a second Auth HTTP request');
   } finally {
     globalThis.fetch = originalFetch;
     Date.now = originalNow;

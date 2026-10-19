@@ -50,6 +50,8 @@ const equityCache = new Map<string, EquityEstimate>();
 type AppMode = 'practice' | 'online-lobby' | 'online-playing';
 let appMode: AppMode = 'practice';
 let onlineRoomId = '';
+let onlineRevision = 0;
+let onlinePollFailures = 0;
 let onlineHost = false;
 let onlineStarted = false;
 let onlineWinnerId: string | null = null;
@@ -61,6 +63,9 @@ let onlinePollTimer: number | undefined;
 let onlinePending = false;
 window.addEventListener('pagehide', () => {
   if (onlineRoomId) leaveRoomKeepalive(onlineRoomId);
+});
+document.addEventListener('visibilitychange', () => {
+  if (onlineRoomId) startOnlinePolling();
 });
 
 function playerLabel(id: string): string {
@@ -268,13 +273,15 @@ function changeMode(mode: AppMode): void {
 }
 
 async function closeOnlineSession(): Promise<void> {
-  if (onlinePollTimer) window.clearInterval(onlinePollTimer);
+  if (onlinePollTimer) window.clearTimeout(onlinePollTimer);
   onlinePollTimer = undefined;
   const roomId = onlineRoomId;
   if (roomId) {
     try { await leaveRoom(roomId); } catch { /* The player can still return to practice if the server is unreachable. */ }
   }
   onlineRoomId = '';
+  onlineRevision = 0;
+  onlinePollFailures = 0;
   onlineStarted = false;
   onlineWinnerId = null;
   onlinePeers = [];
@@ -285,6 +292,7 @@ async function closeOnlineSession(): Promise<void> {
 function applyOnlineRoom(room: OnlineRoom): void {
   onlineError = '';
   onlineRoomId = room.roomId;
+  onlineRevision = room.revision;
   onlineHost = room.hostId === humanId;
   onlineStarted = room.status === 'playing';
   onlineWinnerId = room.winnerId;
@@ -308,8 +316,19 @@ function applyOnlineRoom(room: OnlineRoom): void {
 
 async function refreshOnlineRoom(): Promise<void> {
   if (!onlineRoomId || onlinePending) return;
-  try { applyOnlineRoom(await readRoom(onlineRoomId)); }
+  try {
+    const result = await readRoom(onlineRoomId, onlineRevision);
+    onlinePollFailures = 0;
+    const hadError = Boolean(onlineError);
+    onlineError = '';
+    if ('unchanged' in result) {
+      onlineRevision = result.revision;
+      if (hadError) render();
+    }
+    else applyOnlineRoom(result);
+  }
   catch (error) {
+    onlinePollFailures++;
     onlineError = error instanceof Error ? error.message : 'ルーム状態を取得できませんでした。';
     if (appMode === 'online-lobby') renderOnlineLobby();
     else render();
@@ -317,8 +336,16 @@ async function refreshOnlineRoom(): Promise<void> {
 }
 
 function startOnlinePolling(): void {
-  if (onlinePollTimer) window.clearInterval(onlinePollTimer);
-  onlinePollTimer = window.setInterval(() => { void refreshOnlineRoom(); }, 1_500);
+  if (onlinePollTimer) window.clearTimeout(onlinePollTimer);
+  const schedule = (): void => {
+    if (!onlineRoomId) return;
+    const baseDelay = document.hidden ? 10_000 : 1_500;
+    const delay = onlinePollFailures === 0 ? baseDelay : Math.min(30_000, baseDelay * 2 ** Math.min(onlinePollFailures, 5));
+    onlinePollTimer = window.setTimeout(() => {
+      void refreshOnlineRoom().finally(schedule);
+    }, delay);
+  };
+  schedule();
 }
 
 async function createOnlineRoom(): Promise<void> {
