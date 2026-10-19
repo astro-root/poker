@@ -507,7 +507,7 @@ function render(): void {
   const round = hand.bettingRound;
   const isHumanTurn = !aiThinking && round?.actorId === humanId && hand.stage !== 'complete';
   const legal = isHumanTurn && round ? getLegalActions(round, humanId) : null;
-  const shell = node('main', 'page-shell');
+  const shell = node('main', `page-shell play-shell${appMode === 'online-playing' ? ' online-play-shell' : ''}`);
 
   const header = node('header', 'topbar');
   const brand = node('a', 'brand', 'POKER TABLE');
@@ -578,6 +578,8 @@ function render(): void {
   tableSettings.append(opponentLabel, node('span', 'settings-hint', '人数を変えると新しいハンドから再開します。'));
   if (appMode === 'practice') shell.append(tableSettings);
 
+  const playLayout = node('div', 'play-layout');
+  const secondaryInfo = node('div', 'secondary-info');
   const tableCard = node('section', 'game-panel');
   const panelHeader = node('div', 'panel-header');
   const handMeta = node('div', 'hand-meta');
@@ -622,7 +624,7 @@ function render(): void {
   noticeBar.setAttribute('aria-live', 'polite');
   noticeBar.append(node('span', 'notice-dot'), node('span', '', notice));
   tableCard.append(noticeBar);
-  shell.append(tableCard);
+  playLayout.append(tableCard);
 
   const historyDetails = node('details', 'hand-history');
   const historySummary = node('summary', '', `このハンドの履歴 (${handHistory.length})`);
@@ -631,7 +633,7 @@ function render(): void {
   if (handHistory.length === 0) historyList.append(node('li', 'history-empty', '最初のアクション後にここへ記録されます。'));
   else for (const event of handHistory) historyList.append(node('li', '', event));
   historyDetails.append(historyList);
-  shell.append(historyDetails);
+  secondaryInfo.append(historyDetails);
 
   if (me && hand.board.length >= 3 && hand.stage !== 'complete') {
     const evaluated = evaluateHand([...me.holeCards, ...hand.board]);
@@ -650,9 +652,9 @@ function render(): void {
     }
     lessonText.append(madeWith);
     lesson.append(lessonText);
-    shell.append(lesson);
+    secondaryInfo.append(lesson);
   } else if (hand.stage !== 'complete') {
-    shell.append(node('div', 'lesson-placeholder', 'フロップが公開されると、現在成立している役と構成カードをここに表示します。'));
+    secondaryInfo.append(node('div', 'lesson-placeholder', 'フロップが公開されると、現在成立している役と構成カードをここに表示します。'));
   }
 
   const actionPanel = node('section', 'action-panel');
@@ -805,7 +807,8 @@ function render(): void {
   } else {
     actionPanel.append(node('p', 'action-hint', '相手がアクションしています。'));
   }
-  shell.insertBefore(actionPanel, historyDetails);
+  playLayout.append(actionPanel);
+  shell.append(playLayout, secondaryInfo);
 
   const glossary = node('details', 'glossary');
   const summary = node('summary', '', '用語を確認する');

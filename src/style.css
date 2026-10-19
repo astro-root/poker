@@ -771,3 +771,193 @@ body {
   .pot-value { font-size: 23px; }
   .pot-value::before { left: -31px; width: 21px; height: 21px; }
 }
+
+/* Keep the complete table and its controls in the first viewport. */
+.play-shell {
+  width: min(100% - 32px, 1500px);
+  min-height: 100svh;
+  padding: 8px 0 16px;
+}
+.play-shell > .intro,
+.play-shell > .beginner-guide { display: none; }
+.play-shell > .play-mode-bar {
+  flex: 0 0 auto;
+  min-height: 34px;
+  margin: 0 0 7px;
+  padding: 4px 10px;
+}
+.play-shell > .practice-settings {
+  flex: 0 0 auto;
+  min-height: 30px;
+  margin: 0 0 7px;
+}
+.play-layout {
+  display: grid;
+  height: calc(100svh - 126px);
+  min-height: 440px;
+  grid-template-columns: minmax(0, 1fr) minmax(290px, 350px);
+  gap: 10px;
+}
+.online-play-shell .play-layout { height: calc(100svh - 91px); }
+.game-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+.panel-header { flex: 0 0 auto; }
+.felt {
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  align-content: stretch;
+  gap: clamp(5px, 1.4vh, 13px);
+  padding: clamp(12px, 2vh, 24px) clamp(16px, 3vw, 38px);
+}
+.opponent-seats { align-content: center; }
+.player-seat { min-height: 66px; }
+.table-center { padding: 0; }
+.community-cards { margin-top: 2px; }
+.notice-bar { flex: 0 0 auto; min-height: 34px; padding-block: 6px; }
+.action-panel {
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  overflow-y: auto;
+  padding: 14px;
+}
+.action-heading { margin-bottom: 8px; }
+.action-guidance, .action-hint, .pot-odds { font-size: 10px; }
+.secondary-info { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+
+@media (max-width: 760px) {
+  .play-shell {
+    width: min(100% - 20px, 680px);
+    padding: 6px 0 12px;
+  }
+  .play-shell > .topbar { min-height: 32px; padding-bottom: 5px; }
+  .play-shell > .topbar { display: flex; }
+  .play-shell .player-name-control { gap: 4px; font-size: 8px; }
+  .play-shell .player-name-input { width: 76px; min-height: 27px; padding: 3px 5px; font-size: 9px; }
+  .play-shell > .play-mode-bar {
+    min-height: 30px;
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 5px;
+    padding: 3px 8px;
+  }
+  .play-shell > .play-mode-bar .online-entry-button { min-height: 28px; padding: 4px 8px; }
+  .play-shell > .practice-settings {
+    align-items: center;
+    flex-direction: row;
+    gap: 6px;
+    min-height: 27px;
+    margin-bottom: 5px;
+  }
+  .play-shell .opponent-count-control { gap: 6px; font-size: 9px; }
+  .play-shell .opponent-count-select { min-height: 27px; padding: 2px 7px; font-size: 10px; }
+  .play-shell .settings-hint { font-size: 8px; }
+  .play-layout {
+    display: flex;
+    height: calc(100svh - 120px);
+    min-height: 0;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .online-play-shell .play-layout { height: calc(100svh - 85px); }
+  .game-panel { flex: 1 1 auto; }
+  .panel-header { min-height: 39px; padding: 7px 10px; }
+  .hand-meta { gap: 2px; }
+  .panel-label { font-size: 9px; }
+  .blind-level { font-size: 8px; }
+  .turn-indicator { font-size: 9px; }
+  .felt {
+    grid-template-rows: minmax(0, 1fr) auto auto;
+    gap: 4px;
+    padding: 8px 9px;
+  }
+  .felt::before { inset: 20px 2%; border-width: 5px; }
+  .felt::after { inset: 29px 4%; }
+  .opponent-seats {
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+  }
+  .player-seat {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    min-height: 48px;
+    flex-wrap: nowrap;
+    gap: 5px;
+    padding: 5px 6px;
+  }
+  .avatar { width: 25px; height: 25px; flex-basis: 25px; font-size: 7px; }
+  .seat-details { gap: 1px; }
+  .seat-details strong { font-size: 9px; }
+  .seat-stack, .seat-bet { font-size: 8px; }
+  .stack-meter { width: 50px; height: 3px; }
+  .player-seat .hole-cards { width: auto; margin: 0 0 0 auto; gap: 2px; }
+  .player-seat .playing-card { width: 25px; height: 35px; border-radius: 4px; }
+  .player-seat .card-rank { font-size: 9px; }
+  .player-seat .card-suit { font-size: 11px; }
+  .table-center { gap: 2px; }
+  .pot-label { font-size: 8px; }
+  .pot-value { font-size: 18px; }
+  .pot-value::before { left: -27px; width: 18px; height: 18px; }
+  .pot-value small { font-size: 7px; }
+  .equity-strip { padding: 3px 7px; }
+  .equity-value { font-size: 14px; }
+  .equity-label, .equity-detail { font-size: 7px; }
+  .community-cards { gap: 4px; min-height: 43px; }
+  .community-cards .playing-card { width: clamp(30px, 8vw, 39px); height: clamp(43px, 11.5vw, 54px); }
+  .community-cards .card-rank { font-size: 11px; }
+  .community-cards .card-suit { font-size: 13px; }
+  .game-panel > .felt > .player-seat:last-child { min-height: 48px; }
+  .notice-bar { min-height: 28px; padding: 4px 9px; font-size: 9px; }
+  .action-panel {
+    flex: 0 0 auto;
+    max-height: 42%;
+    padding: 8px 9px;
+  }
+  .action-heading { margin-bottom: 5px; }
+  .action-heading h2 { font-size: 11px; }
+  .stack-summary { font-size: 9px; }
+  .action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+  .action-button { min-height: 36px; padding: 7px 8px; font-size: 10px; }
+  .wager-control { gap: 4px 8px; }
+  .wager-presets { gap: 4px; }
+  .wager-preset { min-height: 29px; font-size: 9px; }
+  .action-panel .action-hint,
+  .action-panel .pot-odds,
+  .action-panel .action-guidance,
+  .action-panel .coach-box { display: none; }
+  .action-panel .revealed-hands,
+  .action-panel .pot-result { display: none; }
+  .action-panel .result-copy { margin: 4px 0; font-size: 10px; }
+  .secondary-info { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 380px), (max-height: 700px) and (max-width: 760px) {
+  .play-layout { height: calc(100svh - 124px); }
+  .online-play-shell .play-layout { height: calc(100svh - 89px); }
+  .play-shell > .practice-settings { margin-bottom: 3px; }
+  .play-shell > .play-mode-bar { margin-bottom: 3px; }
+  .player-seat { min-height: 42px; padding: 4px; }
+  .avatar { width: 22px; height: 22px; flex-basis: 22px; }
+  .player-seat .playing-card { width: 22px; height: 31px; }
+  .game-panel > .felt > .player-seat:last-child { min-height: 42px; }
+  .action-panel { max-height: 44%; padding: 6px 8px; }
+}
+
+@media (max-width: 380px) {
+  .play-shell .player-name-control { display: none; }
+}
+
+@media (max-height: 700px) and (min-width: 761px) {
+  .play-layout { height: calc(100svh - 136px); min-height: 0; }
+  .felt { padding-block: 8px; }
+  .player-seat { min-height: 56px; }
+  .action-panel { padding: 9px; }
+  .action-guidance { display: none; }
+}
