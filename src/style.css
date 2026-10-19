@@ -828,6 +828,7 @@ body {
 }
 .action-heading { margin-bottom: 8px; }
 .action-guidance, .action-hint, .pot-odds { font-size: 10px; }
+.action-waiting { margin: 0; color: #c0cbbf; font-size: 11px; line-height: 1.5; }
 .secondary-info { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 
 @media (max-width: 760px) {
@@ -883,6 +884,10 @@ body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 5px;
   }
+  .opponent-seats .avatar { display: none; }
+  .opponent-seats .player-seat .playing-card { width: 21px; height: 30px; }
+  .opponent-seats .player-seat .card-rank { font-size: 8px; }
+  .opponent-seats .player-seat .card-suit { font-size: 10px; }
   .player-seat {
     width: 100%;
     max-width: none;
@@ -922,6 +927,7 @@ body {
   }
   .action-heading { margin-bottom: 5px; }
   .action-heading h2 { font-size: 11px; }
+  .action-waiting { font-size: 9px; }
   .stack-summary { font-size: 9px; }
   .action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
   .action-button { min-height: 36px; padding: 7px 8px; font-size: 10px; }
@@ -948,6 +954,10 @@ body {
   .player-seat .playing-card { width: 22px; height: 31px; }
   .game-panel > .felt > .player-seat:last-child { min-height: 42px; }
   .action-panel { max-height: 44%; padding: 6px 8px; }
+}
+
+@media (min-width: 381px) and (max-width: 760px) {
+  .opponent-seats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 380px) {

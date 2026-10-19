@@ -587,7 +587,12 @@ function render(): void {
   handMeta.append(node('span', 'panel-label', `ハンド ${table.handNumber} · ${stageLabel(hand.stage)}`));
   handMeta.append(node('span', 'blind-level', `LEVEL ${level} · SB ${formatChips(table.smallBlind)} / BB ${formatChips(table.bigBlind)}`));
   panelHeader.append(handMeta);
-  panelHeader.append(node('span', `turn-indicator${isHumanTurn ? ' your-turn' : ''}`, hand.stage === 'complete' ? 'ハンド終了' : isHumanTurn ? 'あなたの番' : aiThinking ? '相手の思考中' : '進行中'));
+  const actingPlayerId = round?.actorId;
+  const turnText = hand.stage === 'complete' ? 'ハンド終了'
+    : isHumanTurn ? 'あなたの番'
+      : aiThinking ? '相手の思考中'
+        : actingPlayerId ? `${playerLabel(actingPlayerId)}の番` : '進行中';
+  panelHeader.append(node('span', `turn-indicator${isHumanTurn ? ' your-turn' : ''}`, turnText));
   tableCard.append(panelHeader);
 
   const felt = node('div', 'felt');
@@ -659,7 +664,7 @@ function render(): void {
 
   const actionPanel = node('section', 'action-panel');
   const actionHeading = node('div', 'action-heading');
-  actionHeading.append(node('h2', '', hand.stage === 'complete' ? '次のハンド' : 'あなたのアクション'));
+  actionHeading.append(node('h2', '', hand.stage === 'complete' ? '次のハンド' : isHumanTurn ? 'あなたのアクション' : '相手のアクション中'));
   if (me) actionHeading.append(node('span', 'stack-summary', `残り ${formatChips(me.stack)} チップ`));
   actionPanel.append(actionHeading);
 
@@ -691,7 +696,7 @@ function render(): void {
     const hostCanContinue = appMode !== 'online-playing' || (onlineHost && canContinue);
     const nextButton = node('button', 'action-button primary-action', appMode === 'online-playing' && !onlineHost ? 'ホストが次のハンドを開始します' : canContinue ? '次のハンドへ' : 'トーナメントを再開');
     nextButton.type = 'button';
-    nextButton.disabled = !hostCanContinue;
+    nextButton.disabled = !hostCanContinue || onlinePending;
     nextButton.addEventListener('click', () => {
       try {
         if (appMode === 'online-playing') {
@@ -718,9 +723,9 @@ function render(): void {
     actionPanel.append(nextButton);
   } else if (legal && me) {
     const actions = node('div', 'action-grid');
-    actions.append(createActionButton('フォールド', { type: 'fold' }, 'fold-action', !legal.canFold));
-    if (legal.canCheck) actions.append(createActionButton('チェック', { type: 'check' }, 'secondary-action', false));
-    else actions.append(createActionButton(`コール ${formatChips(legal.callAmount)}`, { type: 'call' }, 'secondary-action', legal.callAmount === 0));
+    actions.append(createActionButton('フォールド', { type: 'fold' }, 'fold-action', !legal.canFold || onlinePending));
+    if (legal.canCheck) actions.append(createActionButton('チェック', { type: 'check' }, 'secondary-action', onlinePending));
+    else actions.append(createActionButton(`コール ${formatChips(legal.callAmount)}`, { type: 'call' }, 'secondary-action', legal.callAmount === 0 || onlinePending));
     if (legal.canRaise) {
       const wager = node('div', 'wager-control');
       const range = node('input', 'wager-range') as HTMLInputElement;
@@ -728,6 +733,7 @@ function render(): void {
       range.min = String(Math.min(legal.minRaiseTo, legal.maxRaiseTo));
       range.max = String(legal.maxRaiseTo);
       range.value = range.min;
+      range.disabled = onlinePending;
       range.setAttribute('aria-label', 'ベットまたはレイズ額');
       const amount = node('output', 'wager-amount', formatChips(Number(range.value)));
       const updateWager = (): void => {
@@ -737,7 +743,7 @@ function render(): void {
       range.addEventListener('input', updateWager);
       const wagerButton = node('button', 'action-button primary-action', `${round!.currentBet === 0 ? 'ベット' : 'レイズ'} ${amount.textContent}`);
       wagerButton.type = 'button';
-      wagerButton.disabled = aiThinking;
+      wagerButton.disabled = aiThinking || onlinePending;
       wagerButton.addEventListener('click', () => {
         const target = Number(range.value);
         performAction(target === legal.maxRaiseTo && target < legal.minRaiseTo
@@ -764,6 +770,7 @@ function render(): void {
       ]) {
         const presetButton = node('button', 'wager-preset', preset.label);
         presetButton.type = 'button';
+        presetButton.disabled = onlinePending;
         presetButton.setAttribute('aria-label', `${preset.label}サイズを選択`);
         presetButton.addEventListener('click', () => setPreset(preset.target));
         presets.append(presetButton);
@@ -772,7 +779,7 @@ function render(): void {
       actions.append(wager);
     }
     const canMoveAllIn = legal.canRaise || me.stack <= legal.callAmount;
-    if (me.stack > 0 && canMoveAllIn) actions.append(createActionButton('オールイン', { type: 'all-in' }, 'allin-action', false));
+    if (me.stack > 0 && canMoveAllIn) actions.append(createActionButton('オールイン', { type: 'all-in' }, 'allin-action', onlinePending));
     actionPanel.append(actions);
     const callInfo = legal.callAmount ? `コールに必要なチップ: ${formatChips(legal.callAmount)}` : '追加ベットがなければチェックできます。';
     actionPanel.append(node('p', 'action-hint', `${callInfo} · ポット ${formatChips(view.hand?.pot ?? 0)} チップ${legal.canRaise ? ` · 最小${round!.currentBet === 0 ? 'ベット' : 'レイズ'} ${formatChips(legal.minRaiseTo)}` : ''}`));
@@ -805,7 +812,7 @@ function render(): void {
       actionPanel.append(coach);
     }
   } else {
-    actionPanel.append(node('p', 'action-hint', '相手がアクションしています。'));
+    actionPanel.append(node('p', 'action-waiting', '順番が来ると、ここに操作ボタンが表示されます。'));
   }
   playLayout.append(actionPanel);
   shell.append(playLayout, secondaryInfo);
