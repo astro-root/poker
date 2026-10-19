@@ -12,7 +12,11 @@
 
 ## DB と Edge Function のデプロイ
 
-Supabase CLI が利用できる環境で、リポジトリのルートから実行します。
+DB作成は次のどちらか一方で行います。
+
+**SQL Editorを使う場合**: Dashboard → SQL Editor で [`supabase/SQL_EDITOR_SETUP.sql`](/workspaces/poker/supabase/SQL_EDITOR_SETUP.sql) の内容を実行します。このファイルは下記のマイグレーションと同じSQLです。
+
+**CLIでmigrationを適用する場合**: Supabase CLI が利用できる環境で、リポジトリのルートから実行します。
 
 ```sh
 npx supabase login
@@ -21,7 +25,7 @@ npx supabase db push
 npx supabase functions deploy rooms
 ```
 
-`db push` は `supabase/migrations/20261019000100_create_private_poker_rooms.sql` を適用します。ルームテーブルはRLSを有効にし、匿名ユーザーを含むブラウザーからの直接読込・更新を拒否します。関数のサーバー権限でのみ全状態を読み書きします。`rooms` 関数はJWT検証を有効にし、匿名ゲストを含む認証済み参加者だけを受け入れます。Supabase Edge Functions はサービスキーをサーバー実行環境へ注入します。手動でサービスキーをフロントエンドへ設定する必要はありません。
+`db push` は `supabase/migrations/20261019000100_create_private_poker_rooms.sql` を適用します。どちらの方法でもルームテーブルはRLSを有効にし、匿名ユーザーを含むブラウザーからの直接読込・更新を拒否します。関数のサーバー権限でのみ全状態を読み書きします。`rooms` 関数はJWT検証を有効にし、匿名ゲストを含む認証済み参加者だけを受け入れます。Supabase Edge Functions はサービスキーをサーバー実行環境へ注入します。手動でサービスキーをフロントエンドへ設定する必要はありません。
 
 ローカル開発では `npx supabase start`、別ターミナルで `npx supabase functions serve rooms` を起動します。関数のローカル実行に必要な環境変数は Supabase CLI の案内に従ってください。
 
