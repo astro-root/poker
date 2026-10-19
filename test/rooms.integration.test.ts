@@ -12,6 +12,7 @@ type StoredRoom = {
 test('rooms Edge handler round-trips create, join, start, and private state through mocked Supabase', async () => {
   const rooms = new Map<string, StoredRoom>();
   const requests: Array<{ url: string; method: string }> = [];
+  let databaseFailure: string | null = null;
   const originalFetch = globalThis.fetch;
   let handler: ((request: Request) => Promise<Response>) | undefined;
   const identities: Record<string, string> = { host: 'host-user', guest: 'guest-user' };
@@ -26,6 +27,7 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
       return reply(identities[token] ? { id: identities[token] } : { message: 'invalid token' }, identities[token] ? 200 : 401);
     }
     if (url.pathname !== '/rest/v1/poker_rooms') return reply({ message: 'not found' }, 404);
+    if (databaseFailure) return reply({ message: databaseFailure }, 500);
 
     if (method === 'POST') {
       const row = JSON.parse(String(init.body)) as StoredRoom;
@@ -113,9 +115,32 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
       assert.equal(rooms.get(roomId)!.revision, revision);
       assert.equal(JSON.stringify(rooms.get(roomId)!.state.table), snapshot);
     }
+    const currentRevision = rooms.get(roomId)!.revision;
+    const currentTable = JSON.stringify(rooms.get(roomId)!.state.table);
+    const illegalAction = await call(actorToken, { action: 'action', roomId, expectedVersion: table.version, pokerAction: { type: 'raise', to: 0 } });
+    assert.equal(illegalAction.status, 422);
+    const staleAction = await call(actorToken, { action: 'action', roomId, expectedVersion: table.version - 1, pokerAction: { type: 'call' } });
+    assert.equal(staleAction.status, 409);
+    assert.equal(rooms.get(roomId)!.revision, currentRevision);
+    assert.equal(JSON.stringify(rooms.get(roomId)!.state.table), currentTable);
 
     assert.ok(requests.some((request) => request.method === 'PATCH' && request.url.includes('revision=eq.0')));
     assert.ok(requests.some((request) => request.method === 'PATCH' && request.url.includes('revision=eq.1')));
+
+    const originalConsoleError = console.error;
+    console.error = () => undefined;
+    try {
+      databaseFailure = 'Cannot read private_key at /srv/secrets.ts:42';
+      const failedResponse = await call('host', { action: 'state', roomId });
+      const failedBody = await failedResponse.json() as { error: string; requestId: string };
+      assert.equal(failedResponse.status, 500);
+      assert.match(failedBody.requestId, /^[0-9a-f-]{36}$/u);
+      assert.doesNotMatch(JSON.stringify(failedBody), /Cannot read|private_key|\/srv\/|at /u);
+      assert.match(failedBody.error, /エラー/u);
+    } finally {
+      databaseFailure = null;
+      console.error = originalConsoleError;
+    }
   } finally {
     globalThis.fetch = originalFetch;
     delete (globalThis as typeof globalThis & { Deno?: unknown }).Deno;

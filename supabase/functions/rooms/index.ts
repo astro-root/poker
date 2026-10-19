@@ -10,6 +10,18 @@ type Member = Readonly<{ id: string; name: string }>;
 type RoomState = Readonly<{ members: readonly Member[]; notice: string; table: TableState | null }>;
 type RoomRow = Readonly<{ id: string; host_user_id: string; status: 'waiting' | 'playing'; revision: number; state: RoomState }>;
 
+class RoomError extends Error {
+  readonly status: number;
+  readonly userMessage: string;
+
+  constructor(status: number, userMessage: string) {
+    super(userMessage);
+    this.name = 'RoomError';
+    this.status = status;
+    this.userMessage = userMessage;
+  }
+}
+
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -26,7 +38,7 @@ function cleanName(value: unknown): string {
 }
 
 function parseAction(value: unknown): BettingAction {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid poker action');
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new RoomError(400, 'アクションの形式が正しくありません。');
   const type = (value as { type?: unknown }).type;
   switch (type) {
     case 'fold':
@@ -37,16 +49,16 @@ function parseAction(value: unknown): BettingAction {
     case 'bet':
     case 'raise': {
       const to = (value as { to?: unknown }).to;
-      if (!Number.isSafeInteger(to)) throw new Error('Invalid poker action');
+      if (!Number.isSafeInteger(to) || (to as number) < 0) throw new RoomError(400, 'ベット額の形式が正しくありません。');
       return { type, to: to as number };
     }
     default:
-      throw new Error('Invalid poker action');
+      throw new RoomError(400, 'アクションの形式が正しくありません。');
   }
 }
 
 function parseExpectedVersion(value: unknown): number {
-  if (!Number.isSafeInteger(value)) throw new Error('Invalid expected version');
+  if (!Number.isSafeInteger(value)) throw new RoomError(400, '画面の状態が正しくありません。更新してからお試しください。');
   return value as number;
 }
 
@@ -134,7 +146,10 @@ Deno.serve(async (request: Request) => {
     }
     if (!authUser?.id) return response({ ok: false, error: 'ログイン状態を確認できません。' }, 401);
     const userId = authUser.id;
-    const body = await request.json();
+    let body: any;
+    try { body = await request.json(); } catch {
+      throw new RoomError(400, 'リクエストの形式が正しくありません。');
+    }
     const action = body?.action;
 
     if (action === 'create') {
@@ -212,7 +227,11 @@ Deno.serve(async (request: Request) => {
       if (table.hand.bettingRound.actorId !== userId) return response({ ok: false, error: 'まだあなたの番ではありません。' }, 409);
       const pokerAction = parseAction(body.pokerAction);
       const expectedVersion = parseExpectedVersion(body.expectedVersion);
-      const nextTable = applyTableAction(table, expectedVersion, userId, pokerAction);
+      if (expectedVersion !== table.version) throw new RoomError(409, '画面が更新されています。状態を更新してください。');
+      let nextTable: TableState;
+      try { nextTable = applyTableAction(table, expectedVersion, userId, pokerAction); } catch {
+        throw new RoomError(422, 'そのアクションは実行できません。現在の状態を確認してください。');
+      }
       nextState = { ...row.state, table: nextTable, notice: `${row.state.members.find((member) => member.id === userId)?.name ?? 'プレイヤー'}がアクションしました。` };
     } else if (action === 'next-hand') {
       if (row.host_user_id !== userId) return response({ ok: false, error: '次のハンドを開始できるのはホストです。' }, 403);
@@ -220,7 +239,10 @@ Deno.serve(async (request: Request) => {
       const table = row.state.table;
       const expectedVersion = parseExpectedVersion(body.expectedVersion);
       if (expectedVersion !== table.version) return response({ ok: false, error: '画面が更新されています。状態を更新してください。' }, 409);
-      const nextTable = startNextHand(table);
+      let nextTable: TableState;
+      try { nextTable = startNextHand(table); } catch {
+        throw new RoomError(409, '次のハンドを開始できません。');
+      }
       nextState = { ...row.state, table: nextTable, notice: '次のハンドが始まりました。' };
     } else return response({ ok: false, error: '操作が正しくありません。' }, 400);
 
@@ -228,8 +250,9 @@ Deno.serve(async (request: Request) => {
     if (!updated) return response({ ok: false, error: '同時に操作がありました。最新の状態に更新してください。' }, 409);
     return response({ ok: true, room: publicRoom(updated as RoomRow, userId) });
   } catch (error) {
-    console.error('rooms function error', error);
-    const message = error instanceof Error ? error.message : 'ルーム操作に失敗しました。';
-    return response({ ok: false, error: message }, 400);
+    if (error instanceof RoomError) return response({ ok: false, error: error.userMessage }, error.status);
+    const requestId = crypto.randomUUID();
+    console.error(`rooms function error [${requestId}]`, error);
+    return response({ ok: false, error: '予期しないエラーが発生しました。時間をおいて再度お試しください。', requestId }, 500);
   }
 });
