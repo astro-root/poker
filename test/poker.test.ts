@@ -5,6 +5,7 @@ import { compareHands, evaluateHand } from '../src/poker/evaluator.ts';
 import { buildPots, splitPot } from '../src/poker/pots.ts';
 import { applyBettingAction, createBettingRound, getLegalActions, postBlind, type BettingPlayer } from '../src/poker/betting.ts';
 import { resolveShowdown } from '../src/poker/showdown.ts';
+import { applyHandAction, getHandPot, getPublicHandView, startHand } from '../src/poker/hand.ts';
 
 const c = (rank: Card['rank'], suit: Card['suit']): Card => ({ rank, suit });
 
@@ -66,6 +67,13 @@ test('posts short blinds and completes a check-through street in order', () => {
   assert.equal(round.complete, true);
 });
 
+test('does not allow a player to raise when every opponent is all-in', () => {
+  const round = createBettingRound([player('acting', 100), player('all-in', 0, 10)], 'acting', 10);
+  assert.equal(getLegalActions(round).canRaise, false);
+  assert.equal(getLegalActions(round).canCheck, false);
+  assert.equal(getLegalActions(round).callAmount, 10);
+});
+
 test('enforces call, minimum raise, and returns action after a full raise', () => {
   let round = createBettingRound([player('a'), player('b'), player('c')], 'a', 10);
   round = applyBettingAction(round, 'a', { type: 'bet', to: 10 });
@@ -124,4 +132,71 @@ test('rejects a duplicate card across players or the board at showdown', () => {
     { playerId: 'a', amount: 1, folded: false, holeCards: [c(14,'clubs'), c(13,'clubs')] },
     { playerId: 'b', amount: 1, folded: false, holeCards: [c(14,'clubs'), c(12,'clubs')] },
   ], [c(2,'clubs'),c(3,'clubs'),c(4,'clubs'),c(5,'clubs'),c(6,'clubs')], 'a'), /Duplicate card/);
+});
+
+test('plays a complete heads-up hand across all four betting streets', () => {
+  let hand = startHand([{ id: 'button', stack: 100 }, { id: 'big-blind', stack: 100 }], 0, 5, 10);
+  assert.equal(hand.stage, 'preflop');
+  assert.equal(hand.bettingRound?.actorId, 'button');
+  hand = applyHandAction(hand, 'button', { type: 'call' });
+  hand = applyHandAction(hand, 'big-blind', { type: 'check' });
+  assert.equal(hand.stage, 'flop');
+  assert.equal(hand.board.length, 3);
+  for (const stage of ['flop', 'turn', 'river'] as const) {
+    assert.equal(hand.stage, stage);
+    while (hand.stage === stage) {
+      const actorId = hand.bettingRound?.actorId;
+      assert.ok(actorId);
+      hand = applyHandAction(hand, actorId, { type: 'check' });
+    }
+  }
+  assert.equal(hand.stage, 'complete');
+  assert.equal(hand.board.length, 5);
+  assert.equal(hand.result?.type, 'showdown');
+  assert.equal(hand.players.reduce((sum, player) => sum + player.stack, 0), 200);
+});
+
+test('posts multiway blinds and gives the big blind its preflop option', () => {
+  let hand = startHand([
+    { id: 'button', stack: 100 },
+    { id: 'small-blind', stack: 100 },
+    { id: 'big-blind', stack: 100 },
+  ], 0, 5, 10);
+  assert.equal(hand.players.find((p) => p.id === 'small-blind')?.streetContribution, 5);
+  assert.equal(hand.players.find((p) => p.id === 'big-blind')?.streetContribution, 10);
+  assert.equal(hand.bettingRound?.actorId, 'button');
+  hand = applyHandAction(hand, 'button', { type: 'call' });
+  hand = applyHandAction(hand, 'small-blind', { type: 'call' });
+  assert.equal(hand.bettingRound?.actorId, 'big-blind');
+  hand = applyHandAction(hand, 'big-blind', { type: 'check' });
+  assert.equal(hand.stage, 'flop');
+  assert.equal(hand.bettingRound?.actorId, 'small-blind');
+});
+
+test('runs out the board when both players are all-in from the blinds', () => {
+  const hand = startHand([{ id: 'button', stack: 5 }, { id: 'big-blind', stack: 5 }], 0, 5, 10);
+  assert.equal(hand.stage, 'complete');
+  assert.equal(hand.board.length, 5);
+  assert.equal(hand.result?.type, 'showdown');
+  assert.equal(hand.result?.type === 'showdown' ? hand.result.settlement.totalPot : 0, 10);
+  assert.equal(hand.players.reduce((sum, player) => sum + player.stack, 0), 10);
+});
+
+test('public hand views hide opponents’ cards and the undealt deck', () => {
+  const hand = startHand([{ id: 'button', stack: 100 }, { id: 'big-blind', stack: 100 }], 0, 5, 10);
+  const view = getPublicHandView(hand, 'button');
+  assert.deepEqual(view.players.find((p) => p.id === 'button')?.holeCards, hand.players[0]?.holeCards);
+  assert.equal(view.players.find((p) => p.id === 'big-blind')?.holeCards, null);
+  assert.equal('deck' in view, false);
+  assert.equal(JSON.stringify(view).includes(JSON.stringify(hand.deck)), false);
+});
+
+test('awards the pot immediately after every opponent folds', () => {
+  let hand = startHand([{ id: 'button', stack: 100 }, { id: 'small-blind', stack: 100 }, { id: 'big-blind', stack: 100 }], 0, 5, 10);
+  hand = applyHandAction(hand, 'button', { type: 'fold' });
+  hand = applyHandAction(hand, 'small-blind', { type: 'fold' });
+  assert.equal(hand.stage, 'complete');
+  assert.deepEqual(hand.result, { type: 'uncontested', winnerId: 'big-blind', pot: 15, payouts: { button: 0, 'small-blind': 0, 'big-blind': 15 } });
+  assert.equal(getHandPot(hand), 0);
+  assert.equal(hand.players.reduce((sum, player) => sum + player.stack, 0), 300);
 });

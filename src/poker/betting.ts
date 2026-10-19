@@ -60,7 +60,7 @@ export function createBettingRound(
   return {
     players: players.map((player) => ({ ...player })),
     currentBet,
-    minRaise: currentBet === 0 ? minimumBet : minimumBet,
+    minRaise: minimumBet,
     actorId: firstActorId,
     pendingPlayerIds: canAct.map((player) => player.id),
     raiseAllowedPlayerIds: canAct.map((player) => player.id),
@@ -74,7 +74,8 @@ export function getLegalActions(round: BettingRound, playerId = round.actorId): 
   if (!player || player.folded || player.stack === 0) throw new Error('Player cannot act');
   const callAmount = Math.min(round.currentBet - player.streetContribution, player.stack);
   const maxRaiseTo = player.streetContribution + player.stack;
-  const canRaise = round.raiseAllowedPlayerIds.includes(playerId) && maxRaiseTo > round.currentBet;
+  const hasCallableOpponent = round.players.some((candidate) => candidate.id !== playerId && !candidate.folded && candidate.stack > 0);
+  const canRaise = hasCallableOpponent && round.raiseAllowedPlayerIds.includes(playerId) && maxRaiseTo > round.currentBet;
   return {
     canFold: true,
     canCheck: callAmount === 0,
