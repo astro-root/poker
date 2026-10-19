@@ -8,13 +8,15 @@ import { explainHand, getCallBreakEvenProbability, POKER_GLOSSARY } from './poke
 import './style.css';
 
 const humanId = globalThis.crypto.randomUUID();
-const aiIds = ['table-ai-1', 'table-ai-2', 'table-ai-3'] as const;
+const aiIds = Array.from({ length: 9 }, (_, index) => `table-ai-${index + 1}`);
+const opponentCountOptions = [1, 3, 5] as const;
 const app = document.querySelector<HTMLElement>('#app');
 if (!app) throw new Error('Application root is missing');
 
 const playerNameKey = 'poker-practice-player-name';
 const handArchiveKey = 'poker-practice-hand-archive';
 let playerName = loadPlayerName();
+let opponentCount = loadOpponentCount();
 let table: TableState | null = null;
 let aiTimer: number | undefined;
 let aiThinking = false;
@@ -45,18 +47,19 @@ function formatChips(amount: number): string {
 }
 
 function isAiPlayer(id: string): boolean {
-  return aiIds.includes(id as (typeof aiIds)[number]);
+  return aiIds.includes(id);
 }
 
 function aiStyle(id: string): AiStyle {
-  const index = aiIds.indexOf(id as (typeof aiIds)[number]);
+  const index = aiIds.indexOf(id);
   return index === 0 ? 'aggressive' : index === 2 ? 'cautious' : 'balanced';
 }
 
 function playerLabel(id: string): string {
   if (id === humanId) return playerName;
-  const index = aiIds.indexOf(id as (typeof aiIds)[number]);
-  return index >= 0 ? `AI ${index + 1} · ${['攻め', '標準', '堅実'][index]}` : 'プレイヤー';
+  const index = aiIds.indexOf(id);
+  const style = index === 0 ? '攻め' : index === 2 ? '堅実' : '標準';
+  return index >= 0 ? `AI ${index + 1} · ${style}` : 'プレイヤー';
 }
 
 function loadPlayerName(): string {
@@ -64,6 +67,15 @@ function loadPlayerName(): string {
     return globalThis.localStorage.getItem(playerNameKey)?.trim().slice(0, 20) || 'あなた';
   } catch {
     return 'あなた';
+  }
+}
+
+function loadOpponentCount(): number {
+  try {
+    const saved = Number(globalThis.localStorage.getItem('poker-practice-opponent-count'));
+    return opponentCountOptions.includes(saved as (typeof opponentCountOptions)[number]) ? saved : 3;
+  } catch {
+    return 3;
   }
 }
 
@@ -139,7 +151,7 @@ function startGame(): void {
   aiThinking = false;
   table = createTable([
     { id: humanId, stack: 1_000 },
-    ...aiIds.map((id) => ({ id, stack: 1_000 })),
+    ...aiIds.slice(0, opponentCount).map((id) => ({ id, stack: 1_000 })),
   ], 5, 10);
   table = startNextHand(table);
   humanStackAtHandStart = 1_000;
@@ -270,6 +282,27 @@ function render(): void {
   guideBody.append(node('p', '', 'ほかのプレイヤーより多くのチップを獲得することを目指します。練習チップに金銭的価値はなく、この画面の対戦状態は端末内だけで管理されます。'));
   beginnerGuide.append(guideBody);
   shell.append(beginnerGuide);
+  const tableSettings = node('section', 'practice-settings');
+  const opponentLabel = node('label', 'opponent-count-control');
+  opponentLabel.append(node('span', '', '対戦するAIの人数'));
+  const opponentSelect = node('select', 'opponent-count-select') as HTMLSelectElement;
+  opponentSelect.setAttribute('aria-label', '対戦するAIの人数');
+  for (const count of opponentCountOptions) {
+    const option = node('option', '', `AI ${count}人`);
+    option.value = String(count);
+    opponentSelect.append(option);
+  }
+  opponentSelect.value = String(opponentCount);
+  opponentSelect.addEventListener('change', () => {
+    const selected = Number(opponentSelect.value);
+    if (!opponentCountOptions.includes(selected as (typeof opponentCountOptions)[number])) return;
+    opponentCount = selected;
+    try { globalThis.localStorage.setItem('poker-practice-opponent-count', String(opponentCount)); } catch { /* The in-memory preference still applies for this session. */ }
+    startGame();
+  });
+  opponentLabel.append(opponentSelect);
+  tableSettings.append(opponentLabel, node('span', 'settings-hint', '人数を変えると新しいハンドから再開します。'));
+  shell.append(tableSettings);
 
   const tableCard = node('section', 'game-panel');
   const panelHeader = node('div', 'panel-header');

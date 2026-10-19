@@ -33,6 +33,10 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .beginner-guide summary { padding: 12px 15px; color: #355744; cursor: pointer; font-size: 11px; font-weight: 600; }
 .guide-body { display: grid; gap: 7px; padding: 0 15px 12px; }
 .guide-body p { margin: 0; color: #627168; font-size: 10px; line-height: 1.7; }
+.practice-settings { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }
+.opponent-count-control { display: flex; align-items: center; gap: 8px; color: #52665a; font-size: 10px; font-weight: 600; }
+.opponent-count-select { min-height: 34px; border: 1px solid #d7e1da; border-radius: 8px; background: white; padding: 5px 9px; color: #244c3c; font-size: 11px; }
+.settings-hint { color: #89938b; font-size: 9px; }
 
 .game-panel { overflow: hidden; border: 1px solid #dce2dc; border-radius: 18px; background: white; box-shadow: 0 14px 40px #183c2b0b; }
 .panel-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); padding: 15px 20px; }
@@ -165,6 +169,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
   .player-name-control > span { display: none; }
   .player-name-input { width: 82px; }
   .practice-tag { padding: 6px 8px; font-size: 10px; }
+  .practice-settings { align-items: flex-start; flex-direction: column; gap: 5px; }
   .felt { padding: 20px 12px; }
   .player-seat { gap: 8px; padding: 9px; }
   .playing-card { width: 35px; height: 49px; }

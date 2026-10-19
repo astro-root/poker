@@ -53,19 +53,21 @@
 
 対戦アクションは Vercel のサーバーAPIで検証し、Postgres のトランザクション内でルーム状態とバージョンを更新する設計にします。クライアントから届いたカード、残高、勝敗は信用しません。Realtime は更新通知に使い、クライアント同士でゲーム状態を直接決めさせません。非公開手札は権限を持つ本人にだけ返し、観戦者向け・ルーム全体向けの配信データから除きます。再接続後はDBの最新状態を取り直します。
 
-Supabase Realtime はチャンネル単位の Broadcast と Presence を提供します。Presence はオンライン表示など低頻度の状態に使い、ゲーム中の手札や権威あるゲーム状態の保存には使いません。[Realtime の仕組み](https://supabase.com/docs/guides/realtime/architecture) と[認可設定](https://supabase.com/docs/guides/realtime/authorization)を確認し、チャンネルとDBの権限を設計します。
+Supabase Realtime はチャンネル単位の Broadcast と Presence を提供します。Presence はオンライン表示など低頻度の状態に使い、ゲーム中の手札や権威あるゲーム状態の保存には使いません。[Realtime の仕組み](https://supabase.com/docs/guides/realtime/architecture) と[認可設定](https://supabase.com/docs/guides/realtime/authorization)を確認し、チャンネルとDBの権限を設計します。Supabase側で必要な準備は[セットアップ手順](SUPABASE_SETUP.md)にまとめています。
 
-無料枠には上限があります。現行の公式表では Free プランの Realtime は同時接続200、毎秒100メッセージが上限として示されています。公開前に最新のプラン上限と利用量を再確認します。[Supabase Realtime の上限](https://supabase.com/docs/guides/realtime/limits)
+無料枠には上限があり、内容は変更されることがあります。公開前に[Supabaseの料金と上限](https://supabase.com/pricing)を再確認します。
 
 Vercel Functions の WebSocket も利用可能になっていますが、Function の実行時間で接続が終了し、再接続先が別インスタンスになることがあります。Supabase Realtime を採用する場合、アプリ独自の WebSocket サーバーはまず作らず、Vercel Functions は短いリクエスト処理に使います。[Vercel の WebSocket ガイド](https://vercel.com/kb/guide/do-vercel-serverless-functions-support-websocket-connections)
 
 ### ライブラリ
 
-ポーカールールコアの実行時依存は現在ありません。Node.js 標準の `crypto` とテストランナーを使っています。TypeScript と `@types/node` は開発用です。画面の実装時には Next.js と React、Supabase 接続時には Supabase の公式 JavaScript クライアントを追加する予定です。現段階ではポーカー判定やUIコンポーネント用の外部ライブラリは追加しません。
+ゲームルールの実行時依存は現在ありません。ブラウザーでは Web Crypto、テストやサーバー側処理では Node.js の標準機能を使います。画面は Vite と TypeScript で構成しています。Supabase接続時には公式の JavaScript クライアントを追加する予定です。現段階ではポーカー判定やUIコンポーネント用の外部ライブラリは追加していません。
 
-現在のテスト実行には Node.js 22.6 以降が必要です。
+Node.js の対応バージョンは `package.json` の `engines` を参照してください（現在は 22.12 以降）。
 
 ## ブラウザー練習画面
+
+対戦相手のAIは1人・3人・5人から選択でき、選択は端末内に保存します。人数を変えると新しいハンドで練習を再開します。
 
 `index.html` と Vite で動く日本語の練習画面を追加しました。PCとスマートフォンでテーブル、手札、共通カード、ポット、アクション、現在の役の説明を確認でき、攻め・標準・堅実の3人のAIとハンドを最後まで進められます。初回向けルール案内と現在選べる操作の説明があります。ベットに直面したときは、引き分けや将来のベットを考慮しない単純なコール損益分岐の勝率目安（ポットオッズ）を表示します。プレイヤー名を保存でき、ハンド中のアクション履歴を振り返れます。終了した直近10ハンドのアクション・公開ボード・結果要約を端末内に保存し、勝敗とチップ増減を集計します。ショーダウンでは公開された手札と役、メイン／サイドポットごとの獲得者を表示します。ルールコアはサーバー専用APIに依存せず、ブラウザーでも使えるWeb Cryptoでデッキをシャッフルします。
 
