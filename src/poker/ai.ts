@@ -15,6 +15,7 @@ export type AiDecisionContext = Readonly<{
   streetContribution: number;
   currentBet: number;
   style?: AiStyle;
+  activeOpponentCount?: number;
 }>;
 
 const AI_STYLES: Record<AiStyle, Readonly<{ openRaiseAt: number; raiseAt: number; callFactor: number; betPotFraction: number }>> = {
@@ -90,7 +91,12 @@ export function chooseAiAction(context: AiDecisionContext): BettingAction {
     || !Number.isSafeInteger(context.currentBet) || context.currentBet < 0) {
     throw new RangeError('Invalid AI decision context');
   }
-  const strength = estimateAiHandStrength(context.holeCards, context.board);
+  const opponentCount = context.activeOpponentCount ?? 1;
+  if (!Number.isInteger(opponentCount) || opponentCount < 1 || opponentCount > 9) {
+    throw new RangeError('Active opponent count must be between one and nine');
+  }
+  // More live opponents reduce confidence in the same made hand or draw.
+  const strength = Math.max(0, estimateAiHandStrength(context.holeCards, context.board) - 0.04 * (opponentCount - 1));
   const { legalActions: legal } = context;
   const styleName = context.style ?? 'balanced';
   if (!Object.hasOwn(AI_STYLES, styleName)) throw new RangeError('Unknown AI style');
@@ -122,6 +128,7 @@ export function applyAiTurn(hand: PokerHand, playerId: string): PokerHand {
     pot: getHandPot(hand),
     streetContribution: player.streetContribution,
     currentBet: hand.bettingRound.currentBet,
+    activeOpponentCount: hand.players.filter((candidate) => candidate.id !== playerId && !candidate.folded).length,
   });
   return applyHandAction(hand, playerId, action);
 }

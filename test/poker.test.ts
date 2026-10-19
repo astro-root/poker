@@ -351,7 +351,9 @@ test('AI styles change aggression while preserving legal actions', () => {
   assert.deepEqual(chooseAiAction({ ...base, style: 'aggressive' }), { type: 'bet', to: 10 });
   assert.deepEqual(chooseAiAction({ ...base, style: 'balanced' }), { type: 'check' });
   assert.deepEqual(chooseAiAction({ ...base, style: 'cautious' }), { type: 'check' });
+  assert.deepEqual(chooseAiAction({ ...base, style: 'aggressive', activeOpponentCount: 4 }), { type: 'check' });
   assert.throws(() => chooseAiAction({ ...base, style: 'random' as 'balanced' }), /Unknown AI style/);
+  assert.throws(() => chooseAiAction({ ...base, activeOpponentCount: 0 }), /between one and nine/);
 });
 
 test('applies an AI decision through the ordinary hand rules', () => {

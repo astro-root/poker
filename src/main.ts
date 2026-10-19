@@ -203,6 +203,7 @@ function runAiIfNeeded(): void {
         streetContribution: player.streetContribution,
         currentBet: hand.bettingRound.currentBet,
         style: aiStyle(actorId),
+        activeOpponentCount: hand.players.filter((candidate) => candidate.id !== actorId && !candidate.folded).length,
       });
       table = applyTableAction(table, table.version, actorId, action);
       notice = actionNotice(playerLabel(actorId), action);
