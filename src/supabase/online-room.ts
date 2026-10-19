@@ -1,5 +1,6 @@
 import type { BettingAction } from '../poker/betting.ts';
 import type { TableState } from '../poker/table.ts';
+export { canApplyRoomUpdate } from './room-state.ts';
 import { getCachedAccessToken, supabase, supabasePublishableKey, supabaseUrl } from './client.ts';
 
 export type RoomPeer = Readonly<{ id: string; name: string; connected: boolean }>;

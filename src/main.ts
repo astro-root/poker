@@ -7,7 +7,7 @@ import { evaluateHand, HAND_NAMES, type HandCategory } from './poker/evaluator.t
 import { estimateEquity, type EquityEstimate } from './poker/equity.ts';
 import { explainHand, getCallBreakEvenProbability, POKER_GLOSSARY } from './poker/education.ts';
 import { initializeGuestIdentity } from './supabase/client.ts';
-import { createRoom, joinRoom, leaveRoom, leaveRoomKeepalive, nextRoomHand, readRoom, rematchRoom, startRoom as startServerRoom, submitRoomAction, type OnlineRoom, type RoomPeer } from './supabase/online-room.ts';
+import { canApplyRoomUpdate, createRoom, joinRoom, leaveRoom, leaveRoomKeepalive, nextRoomHand, readRoom, rematchRoom, startRoom as startServerRoom, submitRoomAction, type OnlineRoom, type RoomPeer } from './supabase/online-room.ts';
 import './style.css';
 
 let humanId = '';
@@ -52,6 +52,7 @@ let appMode: AppMode = 'practice';
 let onlineRoomId = '';
 let onlineRevision = 0;
 let onlinePollFailures = 0;
+let onlineSessionEpoch = 0;
 let onlineHost = false;
 let onlineStarted = false;
 let onlineWinnerId: string | null = null;
@@ -236,10 +237,11 @@ function performAction(action: BettingAction): void {
   if (!table || !table.hand || table.hand.stage === 'complete' || aiThinking) return;
   if (appMode === 'online-playing') {
     if (onlinePending) return;
+    const actionRoomId = onlineRoomId;
     onlinePending = true;
     notice = '操作を送信しています…';
     render();
-    void submitRoomAction(onlineRoomId, table.version, action).then(applyOnlineRoom).catch((error: unknown) => {
+    void submitRoomAction(actionRoomId, table.version, action).then((room) => applyOnlineRoom(room, actionRoomId)).catch((error: unknown) => {
       onlineError = error instanceof Error ? error.message : '操作を反映できませんでした。';
       render();
       void refreshOnlineRoom();
@@ -273,6 +275,7 @@ function changeMode(mode: AppMode): void {
 }
 
 async function closeOnlineSession(): Promise<void> {
+  onlineSessionEpoch++;
   if (onlinePollTimer) window.clearTimeout(onlinePollTimer);
   onlinePollTimer = undefined;
   const roomId = onlineRoomId;
@@ -289,7 +292,8 @@ async function closeOnlineSession(): Promise<void> {
   window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
 }
 
-function applyOnlineRoom(room: OnlineRoom): void {
+function applyOnlineRoom(room: OnlineRoom, expectedRoomId?: string): void {
+  if (!canApplyRoomUpdate(onlineRoomId, room.roomId, expectedRoomId, onlineRevision, room.revision, table, room.table)) return;
   onlineError = '';
   onlineRoomId = room.roomId;
   onlineRevision = room.revision;
@@ -316,8 +320,9 @@ function applyOnlineRoom(room: OnlineRoom): void {
 
 async function refreshOnlineRoom(): Promise<void> {
   if (!onlineRoomId || onlinePending) return;
+  const requestedRoomId = onlineRoomId;
   try {
-    const result = await readRoom(onlineRoomId, onlineRevision);
+    const result = await readRoom(requestedRoomId, onlineRevision);
     onlinePollFailures = 0;
     const hadError = Boolean(onlineError);
     onlineError = '';
@@ -325,7 +330,7 @@ async function refreshOnlineRoom(): Promise<void> {
       onlineRevision = result.revision;
       if (hadError) render();
     }
-    else applyOnlineRoom(result);
+    else applyOnlineRoom(result, requestedRoomId);
   }
   catch (error) {
     onlinePollFailures++;
@@ -349,9 +354,11 @@ function startOnlinePolling(): void {
 }
 
 async function createOnlineRoom(): Promise<void> {
+  const requestEpoch = onlineSessionEpoch;
   try {
     if (!guestIdentityOnlineReady) throw new Error('オンライン対戦を利用できません。Supabase設定と匿名ログインを確認してください。');
     const room = await createRoom(playerName);
+    if (requestEpoch !== onlineSessionEpoch) return;
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#room=${room.roomId}`);
     appMode = 'online-lobby';
     applyOnlineRoom(room);
@@ -364,9 +371,11 @@ async function createOnlineRoom(): Promise<void> {
 
 async function joinOnlineRoom(roomId: string): Promise<void> {
   if (!/^[a-f0-9]{36}$/u.test(roomId)) { onlineError = '招待リンクが正しくありません。'; renderOnlineLobby(); return; }
+  const requestEpoch = onlineSessionEpoch;
   try {
     if (!guestIdentityOnlineReady) throw new Error('オンライン対戦を利用できません。Supabase設定と匿名ログインを確認してください。');
     const room = await joinRoom(roomId, playerName);
+    if (requestEpoch !== onlineSessionEpoch) return;
     appMode = room.status === 'playing' ? 'online-playing' : 'online-lobby';
     applyOnlineRoom(room);
     startOnlinePolling();
@@ -376,7 +385,8 @@ async function joinOnlineRoom(roomId: string): Promise<void> {
 
 function startOnlineGame(): void {
   if (!onlineHost || onlinePeers.length < 2) { onlineError = '友だちが参加するまで待ってください。'; renderOnlineLobby(); return; }
-  void startServerRoom(onlineRoomId).then(applyOnlineRoom).catch((error: unknown) => {
+  const requestRoomId = onlineRoomId;
+  void startServerRoom(requestRoomId).then((room) => applyOnlineRoom(room, requestRoomId)).catch((error: unknown) => {
     onlineError = error instanceof Error ? error.message : '対戦を開始できませんでした.';
     renderOnlineLobby();
   });
@@ -891,8 +901,9 @@ function render(): void {
       rematch.disabled = onlinePending;
       rematch.addEventListener('click', () => {
         if (onlinePending) return;
+        const requestRoomId = onlineRoomId;
         onlinePending = true;
-        void rematchRoom(onlineRoomId).then(applyOnlineRoom).catch((error: unknown) => {
+        void rematchRoom(requestRoomId).then((room) => applyOnlineRoom(room, requestRoomId)).catch((error: unknown) => {
           onlineError = error instanceof Error ? error.message : 'リマッチを開始できませんでした。';
           render();
         }).finally(() => { onlinePending = false; render(); });
@@ -913,8 +924,9 @@ function render(): void {
       try {
         if (appMode === 'online-playing') {
           if (!onlinePending) {
+            const requestRoomId = onlineRoomId;
             onlinePending = true;
-            void nextRoomHand(onlineRoomId, table!.version).then(applyOnlineRoom).catch((error: unknown) => {
+            void nextRoomHand(requestRoomId, table!.version).then((room) => applyOnlineRoom(room, requestRoomId)).catch((error: unknown) => {
               onlineError = error instanceof Error ? error.message : '次のハンドを開始できませんでした。';
               render();
               void refreshOnlineRoom();
