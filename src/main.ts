@@ -1,11 +1,16 @@
 import type { Card } from './poker/cards.ts';
+import { formatChips, node } from './ui/dom.ts';
+import { cardElement, cardLabel } from './ui/components/card.ts';
+import { createActionButton } from './ui/components/action-button.ts';
+import { renderSeat } from './ui/components/seat.ts';
+import { pageLink, renderHandsPage, renderHomePage, renderTermsPage, staticPageHeader, type SitePage } from './ui/pages.ts';
 import { applyTableAction, createTable, getPublicTableView, startNextHand, type TableState } from './poker/table.ts';
 import { chooseAiAction, type AiStyle } from './poker/ai.ts';
 import { getHandPot } from './poker/hand.ts';
 import { getLegalActions, type BettingAction } from './poker/betting.ts';
-import { evaluateHand, HAND_NAMES, type HandCategory } from './poker/evaluator.ts';
+import { evaluateHand } from './poker/evaluator.ts';
 import { estimateEquity, type EquityEstimate } from './poker/equity.ts';
-import { explainHand, getCallBreakEvenProbability, POKER_GLOSSARY } from './poker/education.ts';
+import { explainHand, getCallBreakEvenProbability } from './poker/education.ts';
 import { initializeGuestIdentity } from './supabase/client.ts';
 import { canApplyRoomUpdate, createRoom, joinRoom, leaveRoom, leaveRoomKeepalive, nextRoomHand, readRoom, rematchRoom, startRoom as startServerRoom, submitRoomAction, type OnlineRoom, type RoomPeer } from './supabase/online-room.ts';
 import './style.css';
@@ -17,7 +22,6 @@ const aiIds = Array.from({ length: 9 }, (_, index) => `table-ai-${index + 1}`);
 const opponentCountOptions = [1, 3, 5] as const;
 const app = document.querySelector<HTMLElement>('#app');
 if (!app) throw new Error('Application root is missing');
-type SitePage = 'home' | 'ai' | 'online' | 'terms' | 'hands';
 const routePath = window.location.pathname.replace(/\/+$/u, '') || '/';
 const sitePage: SitePage = routePath === '/ai' ? 'ai'
   : routePath === '/online' ? 'online'
@@ -108,17 +112,6 @@ function coachAdvice(equity: EquityEstimate, legal: ReturnType<typeof getLegalAc
   return `推定勝率は約${percent}%。この数字はランダムな相手の手札を使ったシミュレーションです。`;
 }
 
-function node<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
-  const element = document.createElement(tag);
-  if (className) element.className = className;
-  if (text !== undefined) element.textContent = text;
-  return element;
-}
-
-function formatChips(amount: number): string {
-  return new Intl.NumberFormat('ja-JP').format(amount);
-}
-
 function isAiPlayer(id: string): boolean {
   return aiIds.includes(id);
 }
@@ -193,26 +186,6 @@ function archiveCompletedHand(): void {
     chipsChange,
   }, ...recentHands].slice(0, 10);
   try { globalThis.localStorage.setItem(handArchiveKey, JSON.stringify(recentHands)); } catch { /* Keep the in-memory summary if storage is unavailable. */ }
-}
-
-function cardLabel(card: Card): string {
-  const rank = card.rank <= 10 ? String(card.rank) : ({ 11: 'J', 12: 'Q', 13: 'K', 14: 'A' } as Record<number, string>)[card.rank];
-  const suit = ({ clubs: '♣', diamonds: '♦', hearts: '♥', spades: '♠' } as const)[card.suit];
-  return `${rank}${suit}`;
-}
-
-function cardElement(card: Card | null, hidden = false): HTMLElement {
-  if (hidden || !card) {
-    const back = node('span', 'playing-card card-back', '✦');
-    back.setAttribute('aria-label', '非公開のカード');
-    return back;
-  }
-  const red = card.suit === 'hearts' || card.suit === 'diamonds';
-  const face = node('span', `playing-card${red ? ' red-suit' : ''}`);
-  face.setAttribute('aria-label', cardLabel(card));
-  face.append(node('span', 'card-rank', cardLabel(card).slice(0, -1)));
-  face.append(node('span', 'card-suit', cardLabel(card).slice(-1)));
-  return face;
 }
 
 function startGame(): void {
@@ -436,166 +409,10 @@ function runAiIfNeeded(): void {
   }, 550);
 }
 
-function createActionButton(label: string, action: BettingAction, style: string, disabled: boolean): HTMLButtonElement {
-  const button = node('button', `action-button ${style}`, label);
-  button.type = 'button';
-  button.disabled = disabled;
-  button.addEventListener('click', () => performAction(action));
-  return button;
-}
-
-function pageLink(label: string, href: string, active = false): HTMLAnchorElement {
-  const link = node('a', `page-nav-link${active ? ' active-page-link' : ''}`, label) as HTMLAnchorElement;
-  link.href = href;
-  if (active) link.setAttribute('aria-current', 'page');
-  return link;
-}
-
-function staticPageHeader(): HTMLElement {
-  const header = node('header', 'topbar site-topbar');
-  const brand = pageLink('POKER TABLE', '/', false);
-  brand.classList.add('brand');
-  const nav = node('nav', 'page-nav');
-  nav.setAttribute('aria-label', 'メインナビゲーション');
-  nav.append(
-    pageLink('トップ', '/', sitePage === 'home'),
-    pageLink('AI対戦', '/ai', sitePage === 'ai'),
-    pageLink('オンライン', '/online', sitePage === 'online'),
-    pageLink('用語', '/terms', sitePage === 'terms'),
-    pageLink('役一覧', '/hands', sitePage === 'hands'),
-  );
-  header.append(brand, nav);
-  return header;
-}
-
-function renderHomePage(): void {
-  document.title = 'POKER TABLE — テキサスホールデム';
-  const shell = node('main', 'page-shell landing-shell');
-  shell.append(staticPageHeader());
-
-  const hero = node('section', 'landing-hero');
-  const copy = node('div', 'landing-copy');
-  copy.append(node('span', 'eyebrow', 'TEXAS HOLD’EM · PLAY FOR FREE'));
-  copy.append(node('h1', '', '次の一手を、\nテーブルの上で。'));
-  copy.append(node('p', 'landing-lead', 'ルールを学びながら、AIとも友だちとも楽しめるテキサスホールデム。登録なしで始められます。'));
-  const actions = node('div', 'landing-actions');
-  actions.append(pageLink('AIと練習する', '/ai', false), pageLink('友だちと対戦する', '/online', false));
-  actions.children[0]?.classList.add('landing-cta', 'landing-cta-primary');
-  actions.children[1]?.classList.add('landing-cta', 'landing-cta-secondary');
-  copy.append(actions);
-  const trust = node('p', 'landing-note', '無料 · ゲーム内チップのみ · アカウント登録不要');
-  copy.append(trust);
-
-  const stage = node('div', 'landing-stage');
-  stage.setAttribute('aria-hidden', 'true');
-  const stageLabel = node('span', 'landing-stage-label', 'TABLE 01 · HOLD’EM');
-  const artCards = node('div', 'landing-cards');
-  for (const card of [
-    { rank: 14, suit: 'spades' }, { rank: 14, suit: 'hearts' }, { rank: 13, suit: 'spades' },
-  ] as const) artCards.append(cardElement(card));
-  const chips = node('div', 'landing-chip-stack');
-  chips.append(node('i'), node('i'), node('i'));
-  stage.append(stageLabel, artCards, chips, node('span', 'landing-stage-pot', 'POT · 1,250'));
-  hero.append(copy, stage);
-  shell.append(hero);
-
-  const paths = node('section', 'landing-paths');
-  paths.append(node('h2', '', '遊び方を選ぶ'));
-  const pathGrid = node('div', 'landing-path-grid');
-  const pathCards = [
-    { href: '/ai', number: '01', title: 'AIと練習', body: '自分のペースでハンドを重ねて、判断を身につける。', link: '練習を始める →' },
-    { href: '/online', number: '02', title: '友だちと対戦', body: '招待リンクを共有して、すぐにプライベート卓を作る。', link: 'オンラインへ →' },
-  ];
-  for (const item of pathCards) {
-    const card = pageLink('', item.href);
-    card.classList.add('path-card');
-    card.append(node('span', 'path-number', item.number), node('strong', '', item.title), node('span', 'path-copy', item.body), node('span', 'path-link', item.link));
-    pathGrid.append(card);
-  }
-  paths.append(pathGrid);
-  shell.append(paths);
-
-  const learning = node('section', 'landing-learning');
-  learning.append(node('span', 'eyebrow', 'LEARN THE GAME'), node('h2', '', '遊びながら、少しずつ覚える。'));
-  const learningLinks = node('div', 'learning-links');
-  learningLinks.append(pageLink('ポーカー用語を見る →', '/terms'), pageLink('役の強さを確認する →', '/hands'));
-  learning.append(learningLinks);
-  shell.append(learning);
-  shell.append(node('footer', 'footer-note', 'POKER TABLE · すべてのチップはゲーム内専用です。現金や賞金はありません。'));
-  app!.replaceChildren(shell);
-}
-
-function renderTermsPage(): void {
-  document.title = 'ポーカー用語集 — POKER TABLE';
-  const shell = node('main', 'page-shell content-shell');
-  shell.append(staticPageHeader());
-  const intro = node('section', 'content-intro');
-  intro.append(node('span', 'eyebrow', 'POKER GLOSSARY'), node('h1', '', 'ポーカー用語集'), node('p', '', 'テキサスホールデムでよく使う言葉を、短い説明と例でまとめました。'));
-  shell.append(intro);
-  const list = node('div', 'term-list');
-  for (const [index, entry] of POKER_GLOSSARY.entries()) {
-    const article = node('article', 'term-card');
-    article.append(node('span', 'term-index', String(index + 1).padStart(2, '0')), node('h2', '', entry.term));
-    article.append(node('p', '', entry.explanation), node('p', 'term-example', entry.example));
-    list.append(article);
-  }
-  shell.append(list);
-  const bottom = node('nav', 'content-bottom-nav');
-  bottom.setAttribute('aria-label', '次のページ');
-  bottom.append(pageLink('トップへ戻る', '/'), pageLink('役一覧を見る →', '/hands'), pageLink('AIと練習する →', '/ai'));
-  shell.append(bottom, node('footer', 'footer-note', 'POKER TABLE · テキサスホールデム'));
-  app!.replaceChildren(shell);
-}
-
-function renderHandsPage(): void {
-  document.title = 'ポーカーの役一覧 — POKER TABLE';
-  const shell = node('main', 'page-shell content-shell');
-  shell.append(staticPageHeader());
-  const intro = node('section', 'content-intro');
-  intro.append(node('span', 'eyebrow', 'HAND RANKINGS'), node('h1', '', '役の強さ一覧'), node('p', '', 'テキサスホールデムでは、手札2枚と共通カードから最も強い5枚を選びます。上から順に強い役です。'));
-  shell.append(intro);
-
-  const sample = (rank: number, suit: Card['suit']): Card => ({ rank: rank as Card['rank'], suit });
-  const examples: Readonly<Record<number, Readonly<{ description: string; cards: readonly Card[] }>>> = {
-    9: { description: '同じスートの10・J・Q・K・A。作れる中で最も強いストレートフラッシュです。', cards: [sample(10, 'spades'), sample(11, 'spades'), sample(12, 'spades'), sample(13, 'spades'), sample(14, 'spades')] },
-    8: { description: '同じスートで数字が5つ連続した役です。A-2-3-4-5が最も低い形です。', cards: [sample(5, 'clubs'), sample(6, 'clubs'), sample(7, 'clubs'), sample(8, 'clubs'), sample(9, 'clubs')] },
-    7: { description: '同じ数字が4枚。残りの1枚が異なる場合は、そのカードで勝敗を比べます。', cards: [sample(13, 'clubs'), sample(13, 'diamonds'), sample(13, 'hearts'), sample(13, 'spades'), sample(2, 'clubs')] },
-    6: { description: '同じ数字3枚と、別の同じ数字2枚の組み合わせです。', cards: [sample(12, 'clubs'), sample(12, 'diamonds'), sample(12, 'hearts'), sample(8, 'spades'), sample(8, 'hearts')] },
-    5: { description: '5枚すべてが同じスート。数字の高いカードから比べます。', cards: [sample(14, 'hearts'), sample(11, 'hearts'), sample(8, 'hearts'), sample(4, 'hearts'), sample(2, 'hearts')] },
-    4: { description: 'スートに関係なく、数字が5つ連続した役です。Aは最小の1としても使えます。', cards: [sample(5, 'clubs'), sample(6, 'diamonds'), sample(7, 'hearts'), sample(8, 'spades'), sample(9, 'clubs')] },
-    3: { description: '同じ数字が3枚。残り2枚の高さを順に比べます。', cards: [sample(7, 'clubs'), sample(7, 'diamonds'), sample(7, 'hearts'), sample(14, 'clubs'), sample(13, 'diamonds')] },
-    2: { description: '異なる数字のペアが2組。高いペア、低いペア、最後の1枚の順で比べます。', cards: [sample(12, 'clubs'), sample(12, 'diamonds'), sample(4, 'hearts'), sample(4, 'spades'), sample(14, 'clubs')] },
-    1: { description: '同じ数字が2枚。ペアが同じなら、残りのカードを高い順に比べます。', cards: [sample(8, 'clubs'), sample(8, 'diamonds'), sample(14, 'hearts'), sample(13, 'spades'), sample(3, 'clubs')] },
-    0: { description: 'どの役もできていない状態です。一番高いカードから順に比べます。', cards: [sample(14, 'clubs'), sample(11, 'diamonds'), sample(9, 'hearts'), sample(6, 'spades'), sample(3, 'clubs')] },
-  };
-
-  const list = node('div', 'hand-rank-list');
-  for (let category = 9; category >= 0; category--) {
-    const example = examples[category]!;
-    const article = node('article', 'hand-rank-card');
-    const heading = node('div', 'hand-rank-heading');
-    heading.append(node('span', 'hand-rank-number', String(10 - category).padStart(2, '0')));
-    heading.append(node('h2', '', HAND_NAMES[category as HandCategory]));
-    const cards = node('div', 'card-row rank-example-cards');
-    for (const card of example.cards) cards.append(cardElement(card));
-    article.append(heading, node('p', 'hand-rank-description', example.description), cards);
-    list.append(article);
-  }
-  shell.append(list);
-  const note = node('aside', 'hand-rules-note');
-  note.append(node('strong', '', '覚えておきたいこと'), node('p', '', '役の強さが同じならキッカーを比べます。スートに強弱はありません。7枚すべてではなく、最も強い5枚で役を判定します。'));
-  shell.append(note);
-  const bottom = node('nav', 'content-bottom-nav');
-  bottom.setAttribute('aria-label', '次のページ');
-  bottom.append(pageLink('トップへ戻る', '/'), pageLink('用語集を見る →', '/terms'), pageLink('AIと練習する →', '/ai'));
-  shell.append(bottom, node('footer', 'footer-note', 'POKER TABLE · テキサスホールデム'));
-  app!.replaceChildren(shell);
-}
-
 function renderOnlineLobby(): void {
   document.title = '友だちとオンライン対戦 — POKER TABLE';
   const shell = node('main', 'page-shell lobby-shell');
-  shell.append(staticPageHeader());
+  shell.append(staticPageHeader(sitePage));
   const intro = node('section', 'intro lobby-intro');
   intro.append(node('div', 'eyebrow', 'PRIVATE TABLE / PLAY WITH FRIENDS'));
   intro.append(node('h1', '', 'リンクを送って、すぐ対戦。'));
@@ -801,7 +618,7 @@ function render(): void {
   const largestStack = Math.max(1, ...(view.hand?.players.map((player) => player.stack) ?? []));
   const opponents = node('div', 'opponent-seats');
   for (const opponent of (view.hand?.players ?? []).filter((player) => player.id !== humanId)) {
-    opponents.append(renderSeat(playerLabel(opponent.id), opponent, opponent.id === round?.actorId, false, table.buttonPlayerId === opponent.id, Boolean(opponent.holeCards), opponent.stack / largestStack));
+    opponents.append(renderSeat(playerLabel(opponent.id), opponent, opponent.id === round?.actorId, false, table.buttonPlayerId === opponent.id, Boolean(opponent.holeCards), opponent.stack / largestStack, onlineNames.has(opponent.id)));
   }
   felt.append(opponents);
 
@@ -823,7 +640,7 @@ function render(): void {
   felt.append(center);
 
   const human = view.hand?.players.find((player) => player.id === humanId);
-  felt.append(renderSeat(playerName, human, isHumanTurn, true, table.buttonPlayerId === humanId, false, (human?.stack ?? 0) / largestStack));
+  felt.append(renderSeat(playerName, human, isHumanTurn, true, table.buttonPlayerId === humanId, false, (human?.stack ?? 0) / largestStack, onlineNames.has(humanId)));
   tableCard.append(felt);
 
   const noticeBar = node('div', 'notice-bar');
@@ -952,9 +769,9 @@ function render(): void {
     if (!onlineWinnerId) actionPanel.append(nextButton);
   } else if (legal && me) {
     const actions = node('div', 'action-grid');
-    actions.append(createActionButton('フォールド', { type: 'fold' }, 'fold-action', !legal.canFold || onlinePending));
-    if (legal.canCheck) actions.append(createActionButton('チェック', { type: 'check' }, 'secondary-action', onlinePending));
-    else actions.append(createActionButton(`コール ${formatChips(legal.callAmount)}`, { type: 'call' }, 'secondary-action', legal.callAmount === 0 || onlinePending));
+    actions.append(createActionButton('フォールド', { type: 'fold' }, 'fold-action', !legal.canFold || onlinePending, performAction));
+    if (legal.canCheck) actions.append(createActionButton('チェック', { type: 'check' }, 'secondary-action', onlinePending, performAction));
+    else actions.append(createActionButton(`コール ${formatChips(legal.callAmount)}`, { type: 'call' }, 'secondary-action', legal.callAmount === 0 || onlinePending, performAction));
     if (legal.canRaise) {
       const wager = node('div', 'wager-control');
       const range = node('input', 'wager-range') as HTMLInputElement;
@@ -1008,7 +825,7 @@ function render(): void {
       actions.append(wager);
     }
     const canMoveAllIn = legal.canRaise || me.stack <= legal.callAmount;
-    if (me.stack > 0 && canMoveAllIn) actions.append(createActionButton('オールイン', { type: 'all-in' }, 'allin-action', onlinePending));
+    if (me.stack > 0 && canMoveAllIn) actions.append(createActionButton('オールイン', { type: 'all-in' }, 'allin-action', onlinePending, performAction));
     actionPanel.append(actions);
     const callInfo = legal.callAmount ? `コールに必要なチップ: ${formatChips(legal.callAmount)}` : '追加ベットがなければチェックできます。';
     actionPanel.append(node('p', 'action-hint', `${callInfo} · ポット ${formatChips(view.hand?.pot ?? 0)} チップ${legal.canRaise ? ` · 最小${round!.currentBet === 0 ? 'ベット' : 'レイズ'} ${formatChips(legal.minRaiseTo)}` : ''}`));
@@ -1100,39 +917,13 @@ function render(): void {
   app!.replaceChildren(shell);
 }
 
-function renderSeat(name: string, seat: { id: string; stack: number; folded: boolean; holeCards: readonly [Card, Card] | null; streetContribution: number } | undefined, active: boolean, showCards: boolean, isDealer: boolean, revealOpponentCards = false, stackRatio = 1): HTMLElement {
-  const card = node('div', `player-seat${active ? ' active-seat' : ''}${seat?.folded ? ' folded-seat' : ''}${showCards ? ' human-seat' : ''}`);
-  const avatar = node('span', 'avatar', showCards ? 'YOU' : onlineNames.has(seat?.id ?? '') ? 'P' : 'AI');
-  const details = node('div', 'seat-details');
-  details.append(node('strong', '', name));
-  details.append(node('span', 'seat-stack', `${formatChips(seat?.stack ?? 0)} チップ`));
-  const stackMeter = node('span', 'stack-meter');
-  stackMeter.setAttribute('aria-hidden', 'true');
-  const stackFill = node('span', 'stack-meter-fill');
-  stackFill.style.width = `${Math.max(0, Math.min(1, stackRatio)) * 100}%`;
-  stackMeter.append(stackFill);
-  details.append(stackMeter);
-  if (seat && seat.streetContribution > 0) details.append(node('span', 'seat-bet', `ベット ${formatChips(seat.streetContribution)}`));
-  card.append(avatar, details);
-  if (isDealer) card.append(node('span', 'dealer-button', 'D'));
-  const cards = node('div', 'card-row hole-cards');
-  const holeCards = seat?.holeCards;
-  const cardsVisible = showCards || revealOpponentCards;
-  cards.append(cardElement(holeCards?.[0] ?? null, !cardsVisible || !holeCards));
-  cards.append(cardElement(holeCards?.[1] ?? null, !cardsVisible || !holeCards));
-  card.append(cards);
-  if (seat?.folded) card.append(node('span', 'folded-label', 'フォールド'));
-  if (active) card.append(node('span', 'seat-turn-label', 'アクション中'));
-  return card;
-}
-
 function stageLabel(stage: string): string {
   return ({ preflop: 'プリフロップ', flop: 'フロップ', turn: 'ターン', river: 'リバー', complete: 'ショーダウン' } as Record<string, string>)[stage] ?? stage;
 }
 
-if (sitePage === 'home') renderHomePage();
-else if (sitePage === 'terms') renderTermsPage();
-else if (sitePage === 'hands') renderHandsPage();
+if (sitePage === 'home') renderHomePage(app!, sitePage);
+else if (sitePage === 'terms') renderTermsPage(app!, sitePage);
+else if (sitePage === 'hands') renderHandsPage(app!, sitePage);
 else void initializeGuestIdentity().then(({ guestId, onlineReady }) => {
   humanId = guestId;
   guestIdentityOnlineReady = onlineReady;
