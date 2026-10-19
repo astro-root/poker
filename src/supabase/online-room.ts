@@ -1,6 +1,7 @@
 import type { BettingAction } from '../poker/betting.ts';
 import type { TableState } from '../poker/table.ts';
 export { canApplyRoomUpdate } from './room-state.ts';
+import { getFunctionErrorMessage } from './function-error.ts';
 import { getCachedAccessToken, supabase, supabasePublishableKey, supabaseUrl } from './client.ts';
 
 export type RoomPeer = Readonly<{ id: string; name: string; connected: boolean }>;
@@ -20,7 +21,7 @@ export type UnchangedRoom = Readonly<{ unchanged: true; revision: number }>;
 async function request<T>(action: string, args: Record<string, unknown> = {}): Promise<T> {
   if (!supabase) throw new Error('オンライン対戦を利用するには Supabase の設定が必要です。');
   const { data, error } = await supabase.functions.invoke('rooms', { body: { action, ...args } });
-  if (error) throw new Error(error.message || 'ルームサーバーに接続できませんでした。');
+  if (error) throw new Error(await getFunctionErrorMessage(error));
   if (!data?.ok) throw new Error(typeof data?.error === 'string' ? data.error : 'リクエストを完了できませんでした。');
   if (data.unchanged === true) return data as T;
   return data.room as T;
