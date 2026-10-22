@@ -44,3 +44,14 @@ npx supabase functions deploy rooms
 - Supabase Realtime の public channel や WebRTC には手札を流しません。
 
 本番公開前に、2つ以上の別ゲストアカウントで、ホストを含む各ブラウザーの応答に相手の手札・山札が含まれないこと、直接テーブルアクセスが拒否されることを確認してください。オンライン対戦はゲーム内チップのみで、現金・賞金はありません。
+
+## デプロイ時の確認（V-02・未検証）
+
+`rooms` Edge Function は `../../../src/poker/*.ts` を import しています。`npx supabase functions deploy rooms` で次のようなエラーが出た場合は、関数の外にあるファイルが同梱されていません。
+
+1. `supabase/functions/_shared/poker/` を作り、`src/poker/*.ts` をコピーする（`cp src/poker/*.ts supabase/functions/_shared/poker/`）。
+2. `supabase/functions/rooms/index.ts` の import を `../_shared/poker/*.ts` に変更する。
+3. ルール変更のたびにコピーが必要になるため、`npm test` の前にコピー元との差分を検査するスクリプトを追加することを推奨します。
+
+また、`supabase/config.toml` の `[functions.rooms]` は必ず `verify_jwt = true` のままにしてください（関数はJWTの署名を検証しません）。
+
