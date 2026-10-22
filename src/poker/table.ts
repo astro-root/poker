@@ -43,12 +43,18 @@ export function createTable(seats: readonly TableSeat[], smallBlind: number, big
   };
 }
 
-function nextFundedButton(seats: readonly TableSeat[], previousButtonId: string | null): string {
+export type SittingOut = ReadonlySet<string> | readonly string[];
+
+function toSet(sittingOut: SittingOut): ReadonlySet<string> {
+  return sittingOut instanceof Set ? sittingOut : new Set(sittingOut);
+}
+
+function nextFundedButton(seats: readonly TableSeat[], previousButtonId: string | null, away: ReadonlySet<string>): string {
   const startIndex = previousButtonId === null ? -1 : seats.findIndex((seat) => seat.id === previousButtonId);
   if (previousButtonId !== null && startIndex < 0) throw new Error('Previous button is not seated at this table');
   for (let offset = 1; offset <= seats.length; offset++) {
     const seat = seats[(startIndex + offset) % seats.length]!;
-    if (seat.stack > 0) return seat.id;
+    if (seat.stack > 0 && !away.has(seat.id)) return seat.id;
   }
   throw new Error('No players have chips');
 }
@@ -58,13 +64,19 @@ function synchronizeStacks(table: TableState, hand: PokerHand): TableSeat[] {
   return table.seats.map((seat) => ({ ...seat, stack: stacks.get(seat.id) ?? seat.stack }));
 }
 
-/** Starts the next hand and moves the button clockwise, skipping empty seats. */
-export function startNextHand(table: TableState): TableState {
+/**
+ * Starts the next hand and moves the button clockwise, skipping empty seats.
+ * Seats listed in `sittingOut` keep their chips and position but are not dealt in,
+ * do not post blinds, and cannot hold the button until they return.
+ */
+export function startNextHand(table: TableState, sittingOut: SittingOut = []): TableState {
   if (table.hand && table.hand.stage !== 'complete') throw new Error('The current hand must finish before another starts');
   const seats = table.hand ? synchronizeStacks(table, table.hand) : table.seats.map((seat) => ({ ...seat }));
   validateSeats(seats);
-  const buttonPlayerId = nextFundedButton(seats, table.buttonPlayerId);
-  const participants = seats.filter((seat) => seat.stack > 0);
+  const away = toSet(sittingOut);
+  const participants = seats.filter((seat) => seat.stack > 0 && !away.has(seat.id));
+  if (participants.length < 2) throw new RangeError('At least two present players need chips');
+  const buttonPlayerId = nextFundedButton(seats, table.buttonPlayerId, away);
   const buttonIndex = participants.findIndex((seat) => seat.id === buttonPlayerId);
   const nextHandNumber = table.handNumber + 1;
   const level = Math.floor((nextHandNumber - 1) / 10);

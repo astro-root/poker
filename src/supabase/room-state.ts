@@ -18,3 +18,12 @@ export function canApplyRoomUpdate(
   if (responseTable.handNumber === currentTable.handNumber && responseTable.version < currentTable.version) return false;
   return true;
 }
+
+/**
+ * A-3: pagehide also fires on reload, tab switch and mobile backgrounding, so it must never fold a player
+ * who is mid-game. Only a waiting lobby is left on a real page unload; presence and the turn timeout cover the rest.
+ */
+export function shouldLeaveOnPageHide(roomId: string, started: boolean, persisted: boolean): boolean {
+  return Boolean(roomId) && !started && !persisted;
+}
+

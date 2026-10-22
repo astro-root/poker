@@ -79,7 +79,7 @@ export function getLegalActions(round: BettingRound, playerId = round.actorId): 
   const hasCallableOpponent = round.players.some((candidate) => candidate.id !== playerId && !candidate.folded && candidate.stack > 0);
   const canRaise = hasCallableOpponent && round.raiseAllowedPlayerIds.includes(playerId) && maxRaiseTo > round.currentBet;
   return {
-    canFold: true,
+    canFold: callAmount > 0,
     canCheck: callAmount === 0,
     callAmount,
     canRaise,
@@ -109,7 +109,13 @@ function finishOrAdvance(
     const player = players.find((candidate) => candidate.id === id)!;
     return !player.folded && player.stack > 0;
   });
-  const complete = live.length <= 1 || eligiblePending.length === 0;
+  // A lone remaining actor who owes nothing and has no funded live opponent left to bet into
+  // has no meaningful decision (everyone else folded or is all-in), so the round is over.
+  const soleActor = eligiblePending.length === 1 ? players.find((candidate) => candidate.id === eligiblePending[0]) : undefined;
+  const nothingLeftToDo = soleActor !== undefined
+    && currentBet - soleActor.streetContribution <= 0
+    && !live.some((candidate) => candidate.id !== soleActor.id && candidate.stack > 0);
+  const complete = live.length <= 1 || eligiblePending.length === 0 || nothingLeftToDo;
   const actorId = complete ? null : nextActor(players, eligiblePending, actedId);
   return {
     players,
@@ -150,6 +156,7 @@ export function applyBettingAction(round: BettingRound, playerId: string, action
 
   switch (action.type) {
     case 'fold':
+      if (!legal.canFold) throw new Error('Cannot fold when there is nothing to call; check instead');
       updated = { ...current, folded: true };
       break;
     case 'check':
@@ -231,7 +238,11 @@ export function foldBettingPlayer(round: BettingRound, playerId: string): Bettin
   const next = round.actorId === playerId
     ? nextActor(players, eligiblePending, playerId)
     : round.actorId;
-  const complete = live.length <= 1 || eligiblePending.length === 0 || next === null;
+  const soleActor = eligiblePending.length === 1 ? players.find((candidate) => candidate.id === eligiblePending[0]) : undefined;
+  const nothingLeftToDo = soleActor !== undefined
+    && round.currentBet - soleActor.streetContribution <= 0
+    && !live.some((candidate) => candidate.id !== soleActor.id && candidate.stack > 0);
+  const complete = live.length <= 1 || eligiblePending.length === 0 || next === null || nothingLeftToDo;
   return {
     ...round,
     players,
