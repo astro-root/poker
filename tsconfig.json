@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "supabase/functions/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "supabase/functions/**/*.ts", "playwright.config.ts", "e2e/**/*.ts"]
 }

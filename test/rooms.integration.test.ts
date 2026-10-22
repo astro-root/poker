@@ -3,6 +3,11 @@ import assert from 'node:assert/strict';
 import { createDeck } from '../src/poker/cards.ts';
 import { createTable, startNextHand } from '../src/poker/table.ts';
 
+const HOST = '00000000-0000-4000-8000-000000000001';
+const GUEST = '00000000-0000-4000-8000-000000000002';
+const OUTSIDER = '00000000-0000-4000-8000-000000000003';
+const CAP = '00000000-0000-4000-8000-000000000004';
+
 type StoredRoom = {
   id: string;
   host_user_id: string;
@@ -21,10 +26,10 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
   let now = 1_800_000_000_000;
   Date.now = () => now;
   let handler: ((request: Request) => Promise<Response>) | undefined;
-  const identities: Record<string, string> = { host: 'host-user', guest: 'guest-user', outsider: 'outsider-user', cap: 'cap-user' };
+  const identities: Record<string, string> = { host: HOST, guest: GUEST, outsider: OUTSIDER, cap: CAP };
   const rateCounts = new Map<string, { second: number; count: number }>();
   const jwtFor = (alias: string) => {
-    const payload = btoa(JSON.stringify({ sub: identities[alias] ?? alias })).replace(/=/gu, '').replace(/\+/gu, '-').replace(/\//gu, '_');
+    const payload = btoa(JSON.stringify({ sub: identities[alias] ?? alias, role: 'authenticated', exp: Math.floor(now / 1_000) + 3_600 })).replace(/=/gu, '').replace(/\+/gu, '-').replace(/\//gu, '_');
     return `header.${payload}.signature`;
   };
   const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -135,13 +140,13 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
     assert.equal(startedResponse.status, 200);
     const started = await startedResponse.json() as { room: { status: string; table: { hand: { players: Array<{ id: string; holeCards: unknown }> } } } };
     assert.equal(started.room.status, 'playing');
-    assert.equal(started.room.table.hand.players.find((player) => player.id === 'host-user')?.holeCards instanceof Array, true);
-    assert.equal(started.room.table.hand.players.find((player) => player.id === 'guest-user')?.holeCards, null);
+    assert.equal(started.room.table.hand.players.find((player) => player.id === HOST)?.holeCards instanceof Array, true);
+    assert.equal(started.room.table.hand.players.find((player) => player.id === GUEST)?.holeCards, null);
     const startedStateForInputChecks = structuredClone(rooms.get(roomId)!.state);
 
     const initialTable = rooms.get(roomId)!.state.table as { version: number; turnDeadline: number; hand: { bettingRound: { actorId: string } } };
     assert.equal(initialTable.turnDeadline, now + 45_000);
-    if (initialTable.hand.bettingRound.actorId === 'host-user') {
+    if (initialTable.hand.bettingRound.actorId === HOST) {
       const called = await call('host', { action: 'action', roomId, expectedVersion: initialTable.version, pokerAction: { type: 'call' } });
       assert.equal(called.status, 200);
     }
@@ -156,11 +161,11 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
     const afterTimeout = rooms.get(roomId)!.state.table as { version: number; turnDeadline: number | null; hand: { stage: string; bettingRound: { actorId: string } | null } };
     assert.ok(afterTimeout.version > beforeTimeout.version, 'a request should resolve an expired turn');
     assert.equal(afterTimeout.hand.stage, 'flop', 'a player with no amount to call should time out by checking');
-    assert.equal(afterTimeout.hand.bettingRound?.actorId, 'guest-user');
+    assert.equal(afterTimeout.hand.bettingRound?.actorId, GUEST);
     const wager = await call('guest', { action: 'action', roomId, expectedVersion: afterTimeout.version, pokerAction: { type: 'bet', to: 20 } });
     assert.equal(wager.status, 200);
     const facingBet = rooms.get(roomId)!.state.table as { turnDeadline: number; version: number; hand: { bettingRound: { actorId: string } } };
-    assert.equal(facingBet.hand.bettingRound.actorId, 'host-user');
+    assert.equal(facingBet.hand.bettingRound.actorId, HOST);
     now = facingBet.turnDeadline + 1;
     const foldResponse = await call('host', { action: 'state', roomId });
     assert.equal(foldResponse.status, 200);
@@ -177,14 +182,14 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
     assert.equal(stateResponse.status, 200);
     const state = await stateResponse.json() as { room: { table: { hand: { deck: unknown[]; players: Array<{ id: string; holeCards: unknown }> } } } };
     assert.deepEqual(state.room.table.hand.deck, []);
-    assert.ok(state.room.table.hand.players.find((player) => player.id === 'guest-user')?.holeCards instanceof Array);
-    assert.equal(state.room.table.hand.players.find((player) => player.id === 'host-user')?.holeCards, null);
+    assert.ok(state.room.table.hand.players.find((player) => player.id === GUEST)?.holeCards instanceof Array);
+    assert.equal(state.room.table.hand.players.find((player) => player.id === HOST)?.holeCards, null);
 
-    const leavingUser = 'host-user';
-    const leavingToken = leavingUser === 'host-user' ? 'host' : 'guest';
+    const leavingUser = HOST;
+    const leavingToken = leavingUser === HOST ? 'host' : 'guest';
     const left = await call(leavingToken, { action: 'leave', roomId });
     assert.equal(left.status, 200);
-    assert.equal(rooms.get(roomId)!.host_user_id, leavingUser === 'host-user' ? 'guest-user' : 'host-user');
+    assert.equal(rooms.get(roomId)!.host_user_id, leavingUser === HOST ? GUEST : HOST);
     const departed = rooms.get(roomId)!.state.members.find((member: { id: string }) => member.id === leavingUser) as { sittingOut?: boolean };
     assert.equal(departed.sittingOut, true);
     assert.equal((rooms.get(roomId)!.state.table as { hand: { stage: string } }).hand.stage, 'complete',
@@ -193,7 +198,7 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
     rooms.get(roomId)!.state = startedStateForInputChecks;
     const table = rooms.get(roomId)!.state.table as { version: number; hand: { bettingRound: { actorId: string } } };
     now = (rooms.get(roomId)!.state.table as { turnDeadline: number }).turnDeadline - 30_000;
-    const actorToken = table.hand.bettingRound.actorId === 'host-user' ? 'host' : 'guest';
+    const actorToken = table.hand.bettingRound.actorId === HOST ? 'host' : 'guest';
     const invalidActions: unknown[] = [undefined, null, 'call', 42, {}, { type: 'bogus' }, { type: 'CALL' },
       { type: 'raise' }, { type: 'raise', to: '30' }, { type: 'raise', to: 30.5 },
       { type: 'raise', to: Number.NaN }, { type: 'raise', to: Number.POSITIVE_INFINITY }, { type: 'raise', to: -5 }];
@@ -260,7 +265,7 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
     await call('guest', { action: 'join', roomId: terminalRoomId, name: '対戦者' });
     const terminalStart = await call('host', { action: 'start', roomId: terminalRoomId });
     assert.equal(terminalStart.status, 200);
-    const terminalTable = startNextHand(createTable([{ id: 'host-user', stack: 10 }, { id: 'guest-user', stack: 10 }], 5, 10));
+    const terminalTable = startNextHand(createTable([{ id: HOST, stack: 10 }, { id: GUEST, stack: 10 }], 5, 10));
     const hand = terminalTable.hand!;
     const hostCards = [{ rank: 14, suit: 'spades' }, { rank: 14, suit: 'hearts' }] as const;
     const guestCards = [{ rank: 13, suit: 'spades' }, { rank: 13, suit: 'hearts' }] as const;
@@ -273,14 +278,14 @@ test('rooms Edge handler round-trips create, join, start, and private state thro
     const fixedDeck = [burns[0]!, board[0]!, board[1]!, board[2]!, burns[1]!, board[3]!, burns[2]!, board[4]!,
       ...createDeck().filter((card) => !fixedKeys.has(`${card.rank}:${card.suit}`))];
     const riggedTable = { ...terminalTable, hand: { ...hand, deck: fixedDeck, players: hand.players.map((player) => ({
-      ...player, holeCards: player.id === 'host-user' ? hostCards : guestCards,
+      ...player, holeCards: player.id === HOST ? hostCards : guestCards,
     })) } };
     rooms.get(terminalRoomId)!.state.table = riggedTable;
     const allIn = await call('host', { action: 'action', roomId: terminalRoomId, expectedVersion: riggedTable.version, pokerAction: { type: 'all-in' } });
     assert.equal(allIn.status, 200);
     const finished = rooms.get(terminalRoomId)!;
     assert.equal(finished.status, 'finished');
-    assert.equal(finished.state.winnerId, 'host-user');
+    assert.equal(finished.state.winnerId, HOST);
     const rematch = await call('guest', { action: 'rematch', roomId: terminalRoomId });
     assert.equal(rematch.status, 200, 'a seated player can request a rematch');
     assert.equal(rooms.get(terminalRoomId)!.status, 'waiting');

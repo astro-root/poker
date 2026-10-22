@@ -7,8 +7,7 @@ import { applyBettingAction, createBettingRound, getLegalActions, postBlind, typ
 import { resolveShowdown } from '../src/poker/showdown.ts';
 import { applyHandAction, foldHandPlayer, getHandPot, getPublicHandView, startHand } from '../src/poker/hand.ts';
 import { applyTableAction, createTable, getPublicTableView, startNextHand } from '../src/poker/table.ts';
-import { createGuestCredential, createRoom, finishRoomGame, joinRoom, leaveRoom, listPublicRooms, startRoomGame, verifyGuestSession } from '../src/poker/rooms.ts';
-import { applyAiTurn, chooseAiAction, estimateAiHandStrength } from '../src/poker/ai.ts';
+import { applyAiTurn, buildAiContext, chooseAiAction, estimateAiHandStrength } from '../src/poker/ai.ts';
 import { explainHand, findGlossaryEntry, getCallBreakEvenProbability } from '../src/poker/education.ts';
 
 const c = (rank: Card['rank'], suit: Card['suit']): Card => ({ rank, suit });
@@ -296,7 +295,7 @@ test('rotates the button clockwise and skips seats with no chips', () => {
 });
 
 test('plays complete hands at every supported AI table size', () => {
-  for (const opponentCount of [1, 3, 5]) {
+  for (const opponentCount of [1, 3, 5, 7]) {
     let table = startNextHand(createTable([
       { id: 'human', stack: 1_000 },
       ...Array.from({ length: opponentCount }, (_, index) => ({ id: `ai-${index + 1}`, stack: 1_000 })),
@@ -328,96 +327,6 @@ test('plays complete hands at every supported AI table size', () => {
     assert.ok(actionCount < 150);
     assert.equal(table.seats.reduce((sum, seat) => sum + seat.stack, 0), (opponentCount + 1) * 1_000);
   }
-});
-
-test('guest credentials store only a verifier and reject invalid tokens', () => {
-  const { credential, session } = createGuestCredential('  Alice  ');
-  assert.equal(credential.displayName, 'Alice');
-  assert.equal(verifyGuestSession(session, credential.sessionToken), true);
-  assert.equal(verifyGuestSession(session, 'not-the-session-token'), false);
-  assert.equal('sessionToken' in session, false);
-  assert.throws(() => createGuestCredential(''), /Display names/);
-});
-
-test('creates invite rooms without credentials in the URL and enforces seats', () => {
-  const host = createGuestCredential('Host').credential;
-  const guest = createGuestCredential('Guest').credential;
-  const extra = createGuestCredential('Extra').credential;
-  const { room: created, invitationPath } = createRoom(host, {
-    visibility: 'private', maxPlayers: 2, startingStack: 500, smallBlind: 5, bigBlind: 10,
-  });
-  assert.equal(invitationPath, `/rooms/${created.id}`);
-  assert.equal(invitationPath.includes(host.sessionToken), false);
-  const joined = joinRoom(created, guest);
-  assert.equal(joined.joinedAs, 'player');
-  const retried = joinRoom(joined.room, guest);
-  assert.equal(retried.room, joined.room);
-  assert.equal(retried.room.version, joined.room.version);
-  assert.throws(() => joinRoom(joined.room, extra), /full/);
-  const spectator = joinRoom(joined.room, extra, 'spectator');
-  assert.equal(spectator.joinedAs, 'spectator');
-  assert.equal(spectator.room.members.find((member) => member.guestId === extra.guestId)?.seat, null);
-});
-
-test('starts public rooms with host permissions, admits late spectators, and hands off host', () => {
-  const host = createGuestCredential('Host').credential;
-  const guest = createGuestCredential('Guest').credential;
-  const late = createGuestCredential('Late').credential;
-  let room = createRoom(host, {
-    visibility: 'public', maxPlayers: 6, startingStack: 100, smallBlind: 1, bigBlind: 2,
-  }).room;
-  room = joinRoom(room, guest).room;
-  assert.throws(() => startRoomGame(room, guest.guestId, room.version), /Only the room host/);
-  room = startRoomGame(room, host.guestId, room.version);
-  assert.equal(joinRoom(room, late).joinedAs, 'spectator');
-  room = joinRoom(room, late).room;
-  room = leaveRoom(room, host.guestId);
-  assert.equal(room.hostGuestId, guest.guestId);
-  assert.equal(room.members.find((member) => member.guestId === host.guestId)?.connected, false);
-  assert.deepEqual(listPublicRooms([room]).map((summary) => [summary.playerCount, summary.spectatorCount, summary.availableSeats]), [[2, 1, 0]]);
-  room = joinRoom(room, host).room;
-  assert.equal(room.members.find((member) => member.guestId === host.guestId)?.connected, true);
-  room = finishRoomGame(room, room.version);
-  assert.equal(room.status, 'waiting');
-  assert.throws(() => finishRoomGame(room, room.version - 1), /Stale room version/);
-});
-
-test('releases disconnected player seats after the active game resolves', () => {
-  const host = createGuestCredential('Host').credential;
-  const guest = createGuestCredential('Guest').credential;
-  const disconnected = createGuestCredential('Disconnected').credential;
-  let room = createRoom(host, {
-    visibility: 'public', maxPlayers: 3, startingStack: 100, smallBlind: 1, bigBlind: 2,
-  }).room;
-  room = joinRoom(room, guest).room;
-  room = joinRoom(room, disconnected).room;
-  room = startRoomGame(room, host.guestId, room.version);
-  room = leaveRoom(room, disconnected.guestId);
-  assert.ok(room.members.some((member) => member.guestId === disconnected.guestId));
-  room = finishRoomGame(room, room.version);
-  assert.equal(room.members.some((member) => member.guestId === disconnected.guestId), false);
-  assert.equal(room.status, 'waiting');
-  assert.equal(listPublicRooms([room])[0]?.availableSeats, 1);
-});
-
-test('never transfers host privileges to a spectator when players disconnect', () => {
-  const host = createGuestCredential('Host').credential;
-  const playerGuest = createGuestCredential('Player').credential;
-  const spectator = createGuestCredential('Spectator').credential;
-  let room = createRoom(host, {
-    visibility: 'public', maxPlayers: 3, startingStack: 100, smallBlind: 1, bigBlind: 2,
-  }).room;
-  room = joinRoom(room, playerGuest).room;
-  room = joinRoom(room, spectator, 'spectator').room;
-  room = startRoomGame(room, host.guestId, room.version);
-  room = leaveRoom(room, host.guestId);
-  assert.equal(room.hostGuestId, playerGuest.guestId);
-  room = leaveRoom(room, playerGuest.guestId);
-  assert.equal(room.hostGuestId, playerGuest.guestId);
-  assert.notEqual(room.hostGuestId, spectator.guestId);
-
-  const forgedHost = { ...room, status: 'waiting' as const, hostGuestId: spectator.guestId };
-  assert.throws(() => startRoomGame(forgedHost, spectator.guestId, forgedHost.version), /connected player/);
 });
 
 test('AI chooses only legal actions from its hole cards and public state', () => {
@@ -488,4 +397,97 @@ test('calculates a simple break-even call probability and rejects invalid chip v
   assert.equal(getCallBreakEvenProbability(0, 0), 0);
   assert.throws(() => getCallBreakEvenProbability(-1, 10), /non-negative/);
   assert.throws(() => getCallBreakEvenProbability(Number.MAX_SAFE_INTEGER, 1), /safe integer/);
+});
+
+test('A-2: an actor who owes nothing and faces only all-in opponents is not asked to act', () => {
+  // X(1000), Y(50), Z(1000). Y goes all-in preflop, X and Z call; the flop is bet by Z and called by X.
+  let table = startNextHand(createTable([{ id: 'x', stack: 1_000 }, { id: 'y', stack: 50 }, { id: 'z', stack: 1_000 }], 5, 10));
+  const act = (id: string, action: BettingAction): void => { table = applyTableAction(table, table.version, id, action); };
+  const actor = (): string => table.hand!.bettingRound!.actorId!;
+  const guard = (): void => { assert.ok(table.hand!.stage !== 'complete'); };
+  // Drive preflop: everyone limps/calls the all-in.
+  while (table.hand!.stage === 'preflop') {
+    const id = actor();
+    const legal = getLegalActions(table.hand!.bettingRound!, id);
+    if (id === 'y') act(id, { type: 'all-in' });
+    else if (legal.canCheck) act(id, { type: 'check' });
+    else act(id, { type: 'call' });
+  }
+  guard();
+  assert.equal(table.hand!.stage, 'flop');
+  const bettor = actor();
+  const other = bettor === 'x' ? 'z' : 'x';
+  act(bettor, { type: 'bet', to: 100 });
+  act(other, { type: 'call' });
+  assert.equal(table.hand!.stage, 'turn');
+  // Turn: first actor checks; the other bets; first actor folds. Folding leaves the remaining
+  // funded player (who has nothing left to call) with no decision, so the hand runs out.
+  const first = actor();
+  const second = first === 'x' ? 'z' : 'x';
+  act(first, { type: 'check' });
+  act(second, { type: 'bet', to: 40 });
+  act(first, { type: 'fold' });
+  assert.equal(table.hand!.stage, 'complete', 'hand must finish without asking the winner to act');
+  assert.equal(table.seats.reduce((sum, seat) => sum + seat.stack, 0), 2_050);
+});
+
+test('A-2: folding is rejected when there is nothing to call, and hidden from legal actions', () => {
+  const round = createBettingRound([player('a'), player('b')], 'a', 10);
+  const legal = getLegalActions(round, 'a');
+  assert.equal(legal.canCheck, true);
+  assert.equal(legal.canFold, false);
+  assert.throws(() => applyBettingAction(round, 'a', { type: 'fold' }), /Cannot fold/);
+  const facing = createBettingRound([player('a'), player('b', 100, 100)], 'a', 10);
+  assert.equal(getLegalActions(facing, 'a').canFold, true);
+});
+
+test('A-4: sitting-out seats keep their chips, are skipped for dealing and the button, and rejoin later', () => {
+  const seats = [{ id: 'a', stack: 1_000 }, { id: 'b', stack: 1_000 }, { id: 'c', stack: 700 }];
+  let table = startNextHand(createTable(seats, 5, 10), ['c']);
+  assert.deepEqual(table.hand!.players.map((p) => p.id).sort(), ['a', 'b']);
+  assert.equal(table.seats.length, 3, 'a sitting-out seat is not removed');
+  assert.equal(table.seats.find((seat) => seat.id === 'c')!.stack, 700);
+  assert.notEqual(table.buttonPlayerId, 'c');
+  const hand = table.hand!;
+  let t = table;
+  while (t.hand!.stage !== 'complete') {
+    const id = t.hand!.bettingRound!.actorId!;
+    t = applyTableAction(t, t.version, id, getLegalActions(t.hand!.bettingRound!, id).canCheck ? { type: 'check' } : { type: 'call' });
+  }
+  assert.ok(hand.players.length === 2);
+  t = startNextHand(t);
+  assert.deepEqual(t.hand!.players.map((p) => p.id).sort(), ['a', 'b', 'c']);
+  assert.equal(t.seats.reduce((sum, seat) => sum + seat.stack, 0), 2_700);
+  assert.throws(() => startNextHand({ ...t, hand: null }, ['a', 'b']), /two present players/);
+});
+
+for (const level of ['weak', 'medium', 'strong', 'strongest'] as const) {
+  test(`AI level ${level} always chooses legal actions at 2 to 8 player tables`, () => {
+    for (const players of [2, 5, 8]) {
+      for (let handIndex = 0; handIndex < 6; handIndex++) {
+        let table = startNextHand(createTable(Array.from({ length: players }, (_, i) => ({ id: `ai-${i}`, stack: 400 + i * 150 })), 5, 10));
+        let steps = 0;
+        while (table.hand!.stage !== 'complete') {
+          const id = table.hand!.bettingRound!.actorId!;
+          const action = chooseAiAction(buildAiContext(table.hand!, id, level));
+          table = applyTableAction(table, table.version, id, action);
+          assert.ok(++steps < 300);
+        }
+      }
+    }
+  });
+}
+
+test('AI levels differ: strongest folds trash to a big bet, weak is looser than strongest', () => {
+  const round = createBettingRound([player('ai', 1_000), player('opponent', 700, 300)], 'ai', 10);
+  const base = {
+    playerId: 'ai', holeCards: [c(2, 'clubs'), c(7, 'diamonds')] as [Card, Card], board: [] as Card[],
+    legalActions: getLegalActions(round, 'ai'), stack: 1_000, pot: 310, streetContribution: 0, currentBet: 300,
+  };
+  const strongest = chooseAiAction({ ...base, level: 'strongest', random: () => 0.99 });
+  assert.equal(strongest.type, 'fold');
+  let weakCalls = 0;
+  for (let i = 0; i < 100; i++) if (chooseAiAction({ ...base, level: 'weak', random: () => i / 100 }).type === 'call') weakCalls++;
+  assert.ok(weakCalls > 5, 'weak AI should sometimes call with trash');
+  assert.throws(() => chooseAiAction({ ...base, level: 'god' as 'weak' }), /Unknown AI level/);
 });

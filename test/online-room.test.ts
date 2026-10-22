@@ -32,3 +32,11 @@ test('out-of-order room responses cannot replace a newer revision or table versi
   assert.equal(canApplyRoomUpdate('room-a', 'room-a', 'room-a', 5, 5,
     { ...current.table, handNumber: 3, version: 2 }, current.table), false);
 });
+
+test('A-3: pagehide leaves only a waiting lobby, never an in-progress game or a bfcache hide', async () => {
+  const { shouldLeaveOnPageHide } = await import('../src/supabase/room-state.ts');
+  assert.equal(shouldLeaveOnPageHide('room', false, false), true, 'waiting lobby, real unload');
+  assert.equal(shouldLeaveOnPageHide('room', true, false), false, 'playing: reload must not fold the player');
+  assert.equal(shouldLeaveOnPageHide('room', false, true), false, 'page kept in bfcache');
+  assert.equal(shouldLeaveOnPageHide('', false, false), false, 'not in a room');
+});

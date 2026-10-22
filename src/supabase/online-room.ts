@@ -49,9 +49,3 @@ export function leaveRoomKeepalive(roomId: string): void {
     keepalive: true,
   }).catch(() => undefined);
 }
-
-export function createRoomId(): string {
-  const bytes = new Uint8Array(18);
-  globalThis.crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-}

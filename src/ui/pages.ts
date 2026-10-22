@@ -1,99 +1,113 @@
 import type { Card } from '../poker/cards.ts';
 import { HAND_NAMES, type HandCategory } from '../poker/evaluator.ts';
 import { POKER_GLOSSARY } from '../poker/education.ts';
+import { AI_LEVELS, AI_LEVEL_DESCRIPTIONS, AI_LEVEL_LABELS } from '../poker/ai.ts';
 import { node } from './dom.ts';
 import { cardElement } from './components/card.ts';
+import { SITE_NAME, pageLink, siteFooter, siteHeader, type SitePage } from './header.ts';
 
-export type SitePage = 'home' | 'ai' | 'online' | 'terms' | 'hands';
+export type { SitePage } from './header.ts';
 
-export function pageLink(label: string, href: string, active = false): HTMLAnchorElement {
-  const link = node('a', `page-nav-link${active ? ' active-page-link' : ''}`, label) as HTMLAnchorElement;
-  link.href = href;
-  if (active) link.setAttribute('aria-current', 'page');
-  return link;
+function setMeta(title: string): void {
+  document.title = title;
 }
 
-export function staticPageHeader(sitePage: SitePage): HTMLElement {
-  const header = node('header', 'topbar site-topbar');
-  const brand = pageLink('POKER TABLE', '/', false);
-  brand.classList.add('brand');
-  const nav = node('nav', 'page-nav');
-  nav.setAttribute('aria-label', 'メインナビゲーション');
-  nav.append(
-    pageLink('トップ', '/', sitePage === 'home'),
-    pageLink('AI対戦', '/ai', sitePage === 'ai'),
-    pageLink('オンライン', '/online', sitePage === 'online'),
-    pageLink('用語', '/terms', sitePage === 'terms'),
-    pageLink('役一覧', '/hands', sitePage === 'hands'),
-  );
-  header.append(brand, nav);
-  return header;
+function arrow(): HTMLElement {
+  const el = node('span', 'row-arrow', '→');
+  el.setAttribute('aria-hidden', 'true');
+  return el;
 }
 
 export function renderHomePage(app: HTMLElement, sitePage: SitePage): void {
-  document.title = 'POKER TABLE — テキサスホールデム';
-  const shell = node('main', 'page-shell landing-shell');
-  shell.append(staticPageHeader(sitePage));
+  setMeta(`${SITE_NAME} — テキサスホールデム`);
+  const shell = node('div', 'page-shell');
+  shell.append(siteHeader(sitePage));
+  const main = node('main', 'landing');
 
-  const hero = node('section', 'landing-hero');
-  const copy = node('div', 'landing-copy');
-  copy.append(node('span', 'eyebrow', 'TEXAS HOLD’EM · PLAY FOR FREE'));
-  copy.append(node('h1', '', '次の一手を、\nテーブルの上で。'));
-  copy.append(node('p', 'landing-lead', 'ルールを学びながら、AIとも友だちとも楽しめるテキサスホールデム。登録なしで始められます。'));
-  const actions = node('div', 'landing-actions');
-  actions.append(pageLink('AIと練習する', '/ai', false), pageLink('友だちと対戦する', '/online', false));
-  actions.children[0]?.classList.add('landing-cta', 'landing-cta-primary');
-  actions.children[1]?.classList.add('landing-cta', 'landing-cta-secondary');
-  copy.append(actions);
-  const trust = node('p', 'landing-note', '無料 · ゲーム内チップのみ · アカウント登録不要');
-  copy.append(trust);
+  const hero = node('section', 'hero');
+  const copy = node('div', 'hero-copy');
+  copy.append(node('span', 'eyebrow', 'TEXAS HOLD’EM ARENA'));
+  copy.append(node('h1', 'hero-title', '闘技場で、\n最後の一手を。'));
+  copy.append(node('p', 'hero-lead', '強さの違う最大7人のAIと腕試し。友だちとはリンクを送るだけ。登録なし、無料で、ルールを学びながら遊べるテキサスホールデムです。'));
+  const actions = node('div', 'hero-actions');
+  const primary = pageLink('AIと対戦する', '/ai');
+  primary.className = 'button button-primary';
+  const secondary = pageLink('友だちと対戦する', '/online');
+  secondary.className = 'button button-secondary';
+  actions.append(primary, secondary);
+  copy.append(actions, node('p', 'hero-note', '無料 · アカウント登録不要 · ゲーム内チップのみ'));
 
-  const stage = node('div', 'landing-stage');
-  stage.setAttribute('aria-hidden', 'true');
-  const stageLabel = node('span', 'landing-stage-label', 'TABLE 01 · HOLD’EM');
-  const artCards = node('div', 'landing-cards');
-  for (const card of [
-    { rank: 14, suit: 'spades' }, { rank: 14, suit: 'hearts' }, { rank: 13, suit: 'spades' },
-  ] as const) artCards.append(cardElement(card));
-  const chips = node('div', 'landing-chip-stack');
-  chips.append(node('i'), node('i'), node('i'));
-  stage.append(stageLabel, artCards, chips, node('span', 'landing-stage-pot', 'POT · 1,250'));
-  hero.append(copy, stage);
-  shell.append(hero);
+  const art = node('div', 'hero-art');
+  art.setAttribute('aria-hidden', 'true');
+  const arena = node('div', 'arena');
+  const cards = node('div', 'arena-cards');
+  for (const card of [{ rank: 14, suit: 'spades' }, { rank: 14, suit: 'hearts' }, { rank: 13, suit: 'spades' }, { rank: 12, suit: 'spades' }, { rank: 11, suit: 'spades' }] as const) cards.append(cardElement(card, false, 'md'));
+  const pot = node('div', 'arena-pot');
+  pot.append(node('span', 'arena-pot-label', 'POT'), node('strong', '', '12,500'));
+  const chips = node('div', 'arena-chips');
+  chips.append(node('i'), node('i'), node('i'), node('i'));
+  arena.append(cards, pot, chips);
+  art.append(arena);
+  hero.append(copy, art);
+  main.append(hero);
 
-  const paths = node('section', 'landing-paths');
-  paths.append(node('h2', '', '遊び方を選ぶ'));
-  const pathGrid = node('div', 'landing-path-grid');
-  const pathCards = [
-    { href: '/ai', number: '01', title: 'AIと練習', body: '自分のペースでハンドを重ねて、判断を身につける。', link: '練習を始める →' },
-    { href: '/online', number: '02', title: '友だちと対戦', body: '招待リンクを共有して、すぐにプライベート卓を作る。', link: 'オンラインへ →' },
+  const modes = node('section', 'section');
+  modes.append(node('span', 'eyebrow', 'MODES'), node('h2', 'section-title', '遊び方を選ぶ'));
+  const list = node('div', 'mode-list');
+  const items = [
+    { href: '/ai', title: 'AI対戦', body: `強さは「${AI_LEVELS.map((level) => AI_LEVEL_LABELS[level]).join('・')}」の4段階。AIは1〜7人から選べます。`, tag: 'SOLO' },
+    { href: '/online', title: 'オンライン対戦', body: '部屋を作って招待リンクを共有。最大6人で、手札は本人にだけ表示されます。', tag: 'FRIENDS' },
+    { href: '/terms', title: 'ポーカー用語集', body: 'ブラインドやサイドポットなど、14の用語を短い例つきで確認。', tag: 'LEARN' },
+    { href: '/hands', title: '役の強さ一覧', body: 'ロイヤルフラッシュからハイカードまで、10種類の役をカードで見比べます。', tag: 'LEARN' },
   ];
-  for (const item of pathCards) {
-    const card = pageLink('', item.href);
-    card.classList.add('path-card');
-    card.append(node('span', 'path-number', item.number), node('strong', '', item.title), node('span', 'path-copy', item.body), node('span', 'path-link', item.link));
-    pathGrid.append(card);
-  }
-  paths.append(pathGrid);
-  shell.append(paths);
+  items.forEach((item, index) => {
+    const row = node('a', 'mode-row') as HTMLAnchorElement;
+    row.href = item.href;
+    const text = node('span', 'mode-text');
+    text.append(node('strong', 'mode-title', item.title), node('span', 'mode-body', item.body));
+    row.append(node('span', 'mode-number', String(index + 1).padStart(2, '0')), text, node('span', 'mode-tag', item.tag), arrow());
+    list.append(row);
+  });
+  modes.append(list);
+  main.append(modes);
 
-  const learning = node('section', 'landing-learning');
-  learning.append(node('span', 'eyebrow', 'LEARN THE GAME'), node('h2', '', '遊びながら、少しずつ覚える。'));
-  const learningLinks = node('div', 'learning-links');
-  learningLinks.append(pageLink('ポーカー用語を見る →', '/terms'), pageLink('役の強さを確認する →', '/hands'));
-  learning.append(learningLinks);
-  shell.append(learning);
-  shell.append(node('footer', 'footer-note', 'POKER TABLE · すべてのチップはゲーム内専用です。現金や賞金はありません。'));
+  const levels = node('section', 'section');
+  levels.append(node('span', 'eyebrow', 'OPPONENTS'), node('h2', 'section-title', '4つの強さ、1〜7人の対戦相手'));
+  const grid = node('div', 'level-grid');
+  AI_LEVELS.forEach((level, index) => {
+    const card = node('div', 'level-card');
+    const pips = node('span', 'level-pips');
+    pips.setAttribute('aria-hidden', 'true');
+    for (let pip = 0; pip < 4; pip++) pips.append(node('i', pip <= index ? 'is-on' : ''));
+    card.append(pips, node('strong', '', AI_LEVEL_LABELS[level]), node('p', '', AI_LEVEL_DESCRIPTIONS[level]));
+    grid.append(card);
+  });
+  levels.append(grid);
+  main.append(levels);
+
+  shell.append(main, siteFooter());
   app.replaceChildren(shell);
 }
 
-export function renderTermsPage(app: HTMLElement, sitePage: SitePage): void {
-  document.title = 'ポーカー用語集 — POKER TABLE';
-  const shell = node('main', 'page-shell content-shell');
-  shell.append(staticPageHeader(sitePage));
+function contentIntro(eyebrow: string, title: string, body: string): HTMLElement {
   const intro = node('section', 'content-intro');
-  intro.append(node('span', 'eyebrow', 'POKER GLOSSARY'), node('h1', '', 'ポーカー用語集'), node('p', '', 'テキサスホールデムでよく使う言葉を、短い説明と例でまとめました。'));
-  shell.append(intro);
+  intro.append(node('span', 'eyebrow', eyebrow), node('h1', 'page-title', title), node('p', 'page-lead', body));
+  return intro;
+}
+
+function bottomNav(...links: HTMLAnchorElement[]): HTMLElement {
+  const nav = node('nav', 'content-bottom-nav');
+  nav.setAttribute('aria-label', '次のページ');
+  for (const link of links) nav.append(link);
+  return nav;
+}
+
+export function renderTermsPage(app: HTMLElement, sitePage: SitePage): void {
+  setMeta(`ポーカー用語集 — ${SITE_NAME}`);
+  const shell = node('div', 'page-shell');
+  shell.append(siteHeader(sitePage));
+  const main = node('main', 'content');
+  main.append(contentIntro('POKER GLOSSARY', 'ポーカー用語集', 'テキサスホールデムでよく使う言葉を、短い説明と例でまとめました。'));
   const list = node('div', 'term-list');
   for (const [index, entry] of POKER_GLOSSARY.entries()) {
     const article = node('article', 'term-card');
@@ -101,21 +115,17 @@ export function renderTermsPage(app: HTMLElement, sitePage: SitePage): void {
     article.append(node('p', '', entry.explanation), node('p', 'term-example', entry.example));
     list.append(article);
   }
-  shell.append(list);
-  const bottom = node('nav', 'content-bottom-nav');
-  bottom.setAttribute('aria-label', '次のページ');
-  bottom.append(pageLink('トップへ戻る', '/'), pageLink('役一覧を見る →', '/hands'), pageLink('AIと練習する →', '/ai'));
-  shell.append(bottom, node('footer', 'footer-note', 'POKER TABLE · テキサスホールデム'));
+  main.append(list, bottomNav(pageLink('ホームへ戻る', '/'), pageLink('役一覧を見る →', '/hands'), pageLink('AIと対戦する →', '/ai')));
+  shell.append(main, siteFooter());
   app.replaceChildren(shell);
 }
 
 export function renderHandsPage(app: HTMLElement, sitePage: SitePage): void {
-  document.title = 'ポーカーの役一覧 — POKER TABLE';
-  const shell = node('main', 'page-shell content-shell');
-  shell.append(staticPageHeader(sitePage));
-  const intro = node('section', 'content-intro');
-  intro.append(node('span', 'eyebrow', 'HAND RANKINGS'), node('h1', '', '役の強さ一覧'), node('p', '', 'テキサスホールデムでは、手札2枚と共通カードから最も強い5枚を選びます。上から順に強い役です。'));
-  shell.append(intro);
+  setMeta(`ポーカーの役一覧 — ${SITE_NAME}`);
+  const shell = node('div', 'page-shell');
+  shell.append(siteHeader(sitePage));
+  const main = node('main', 'content');
+  main.append(contentIntro('HAND RANKINGS', '役の強さ一覧', 'テキサスホールデムでは、手札2枚と共通カードから最も強い5枚を選びます。上から順に強い役です。'));
 
   const sample = (rank: number, suit: Card['suit']): Card => ({ rank: rank as Card['rank'], suit });
   const examples: Readonly<Record<number, Readonly<{ description: string; cards: readonly Card[] }>>> = {
@@ -139,18 +149,14 @@ export function renderHandsPage(app: HTMLElement, sitePage: SitePage): void {
     heading.append(node('span', 'hand-rank-number', String(10 - category).padStart(2, '0')));
     heading.append(node('h2', '', HAND_NAMES[category as HandCategory]));
     const cards = node('div', 'card-row rank-example-cards');
-    for (const card of example.cards) cards.append(cardElement(card));
+    for (const card of example.cards) cards.append(cardElement(card, false, 'md'));
     article.append(heading, node('p', 'hand-rank-description', example.description), cards);
     list.append(article);
   }
-  shell.append(list);
+  main.append(list);
   const note = node('aside', 'hand-rules-note');
   note.append(node('strong', '', '覚えておきたいこと'), node('p', '', '役の強さが同じならキッカーを比べます。スートに強弱はありません。7枚すべてではなく、最も強い5枚で役を判定します。'));
-  shell.append(note);
-  const bottom = node('nav', 'content-bottom-nav');
-  bottom.setAttribute('aria-label', '次のページ');
-  bottom.append(pageLink('トップへ戻る', '/'), pageLink('用語集を見る →', '/terms'), pageLink('AIと練習する →', '/ai'));
-  shell.append(bottom, node('footer', 'footer-note', 'POKER TABLE · テキサスホールデム'));
+  main.append(note, bottomNav(pageLink('ホームへ戻る', '/'), pageLink('用語集を見る →', '/terms'), pageLink('AIと対戦する →', '/ai')));
+  shell.append(main, siteFooter());
   app.replaceChildren(shell);
 }
-
