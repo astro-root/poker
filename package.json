@@ -1,6 +1,6 @@
 {
   "name": "poker",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Free online Texas Hold'em game",
@@ -10,18 +10,22 @@
     "preview": "vite preview",
     "capture:design-before": "node scripts/capture-design-before.mjs",
     "test": "node --experimental-strip-types --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test"
   },
   "engines": {
     "node": ">=22.12"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
+    "@playwright/test": "^1.64.1",
     "@types/node": "^22.15.0",
     "playwright": "^1.64.1",
     "typescript": "^5.8.3",
     "vite": "^8.2.0"
   },
   "dependencies": {
+    "@fontsource-variable/noto-sans-jp": "^5.2.5",
     "@supabase/supabase-js": "^2.118.0"
   }
 }

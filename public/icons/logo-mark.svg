@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Poker Colosseum">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4d37e"/>
+      <stop offset="1" stop-color="#c8962f"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="#0b0b0d"/>
+  <rect x="1.5" y="1.5" width="61" height="61" rx="13.5" fill="none" stroke="#d9ae4a" stroke-opacity=".55" stroke-width="1.5"/>
+  <path fill="url(#g)" d="M32 8.5c-1.6 2.2-14.5 11-14.5 19.2 0 4.6 3.7 7.1 7.4 6.2-.3 2.6-1.7 4.6-3.7 6h21.6c-2-1.4-3.4-3.4-3.7-6 3.7.9 7.4-1.6 7.4-6.2C46.5 19.5 33.600 10.700 32 8.500z"/>
+  <path fill="url(#g)" fill-rule="evenodd" d="M10 42.500h44V54H10zM15 54v-6.500a3.500 3.500 0 0 1 7 0V54zm13 0v-6.500a3.500 3.500 0 0 1 8 0V54zm14 0v-6.500a3.500 3.500 0 0 1 7 0V54z" opacity=".95"/>
+</svg>
