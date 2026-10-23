@@ -8,6 +8,12 @@ export type TableState = Readonly<{
   bigBlind: number;
   baseSmallBlind: number;
   baseBigBlind: number;
+  ante: number;
+  baseAnte: number;
+  /** Hands to play, or null for unlimited. */
+  maxHands: number | null;
+  /** Whether blinds and ante double every 10 hands. */
+  escalateBlinds: boolean;
   buttonPlayerId: string | null;
   handNumber: number;
   version: number;
@@ -25,8 +31,16 @@ function validateSeats(seats: readonly TableSeat[]): void {
   if (seats.filter((seat) => seat.stack > 0).length < 2) throw new RangeError('At least two seated players need chips');
 }
 
-export function createTable(seats: readonly TableSeat[], smallBlind: number, bigBlind: number): TableState {
+export type TableOptions = Readonly<{ ante?: number; maxHands?: number | null; escalateBlinds?: boolean }>;
+/** Doubling stops here so blinds can never leave the safe-integer range. */
+export const MAX_BLIND_LEVEL = 12;
+
+export function createTable(seats: readonly TableSeat[], smallBlind: number, bigBlind: number, options: TableOptions = {}): TableState {
   validateSeats(seats);
+  const ante = options.ante ?? 0;
+  const maxHands = options.maxHands ?? null;
+  if (!Number.isSafeInteger(ante) || ante < 0) throw new RangeError('Ante must be a non-negative safe integer');
+  if (maxHands !== null && (!Number.isSafeInteger(maxHands) || maxHands < 1)) throw new RangeError('Hand limit must be a positive safe integer or null');
   if (!Number.isSafeInteger(smallBlind) || !Number.isSafeInteger(bigBlind) || smallBlind < 1 || bigBlind < smallBlind) {
     throw new RangeError('Blinds must be positive safe integers and the big blind cannot be smaller than the small blind');
   }
@@ -36,6 +50,10 @@ export function createTable(seats: readonly TableSeat[], smallBlind: number, big
     bigBlind,
     baseSmallBlind: smallBlind,
     baseBigBlind: bigBlind,
+    ante,
+    baseAnte: ante,
+    maxHands,
+    escalateBlinds: options.escalateBlinds ?? true,
     buttonPlayerId: null,
     handNumber: 0,
     version: 0,
@@ -71,6 +89,7 @@ function synchronizeStacks(table: TableState, hand: PokerHand): TableSeat[] {
  */
 export function startNextHand(table: TableState, sittingOut: SittingOut = []): TableState {
   if (table.hand && table.hand.stage !== 'complete') throw new Error('The current hand must finish before another starts');
+  if (table.maxHands !== null && table.maxHands !== undefined && table.handNumber >= table.maxHands) throw new Error('The hand limit has been reached');
   const seats = table.hand ? synchronizeStacks(table, table.hand) : table.seats.map((seat) => ({ ...seat }));
   validateSeats(seats);
   const away = toSet(sittingOut);
@@ -79,16 +98,18 @@ export function startNextHand(table: TableState, sittingOut: SittingOut = []): T
   const buttonPlayerId = nextFundedButton(seats, table.buttonPlayerId, away);
   const buttonIndex = participants.findIndex((seat) => seat.id === buttonPlayerId);
   const nextHandNumber = table.handNumber + 1;
-  const level = Math.floor((nextHandNumber - 1) / 10);
+  const level = table.escalateBlinds === false ? 0 : Math.min(MAX_BLIND_LEVEL, Math.floor((nextHandNumber - 1) / 10));
   const smallBlind = table.baseSmallBlind * 2 ** level;
   const bigBlind = table.baseBigBlind * 2 ** level;
-  if (!Number.isSafeInteger(smallBlind) || !Number.isSafeInteger(bigBlind)) throw new RangeError('Blind level exceeds the safe integer range');
-  const hand = startHand(participants, buttonIndex, smallBlind, bigBlind);
+  const ante = (table.baseAnte ?? 0) * 2 ** level;
+  if (!Number.isSafeInteger(smallBlind) || !Number.isSafeInteger(bigBlind) || !Number.isSafeInteger(ante)) throw new RangeError('Blind level exceeds the safe integer range');
+  const hand = startHand(participants, buttonIndex, smallBlind, bigBlind, ante);
   return {
     ...table,
     seats,
     smallBlind,
     bigBlind,
+    ante,
     buttonPlayerId,
     handNumber: nextHandNumber,
     version: table.version + 1,
@@ -116,10 +137,18 @@ export function applyTableAction(
   };
 }
 
+/** True when the finished hand ends the game: one player holds every chip, or the hand limit was just played. */
+export function isGameOver(table: TableState): boolean {
+  if (table.hand?.stage !== 'complete') return false;
+  if (table.seats.filter((seat) => seat.stack > 0).length <= 1) return true;
+  return table.maxHands !== null && table.maxHands !== undefined && table.handNumber >= table.maxHands;
+}
+
 export function getPublicTableView(table: TableState, viewerId?: string): Readonly<{
   seats: readonly TableSeat[];
   smallBlind: number;
   bigBlind: number;
+  ante: number;
   buttonPlayerId: string | null;
   handNumber: number;
   version: number;
@@ -129,6 +158,7 @@ export function getPublicTableView(table: TableState, viewerId?: string): Readon
     seats: table.seats.map((seat) => ({ ...seat })),
     smallBlind: table.smallBlind,
     bigBlind: table.bigBlind,
+    ante: table.ante ?? 0,
     buttonPlayerId: table.buttonPlayerId,
     handNumber: table.handNumber,
     version: table.version,

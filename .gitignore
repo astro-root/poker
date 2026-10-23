@@ -11,3 +11,7 @@ docs/design/before/
 docs/design/after/
 test-results/
 playwright-report/
+
+# Local packages and secrets
+dist-package/
+*.zip

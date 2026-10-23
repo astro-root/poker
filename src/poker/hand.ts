@@ -32,6 +32,7 @@ export type PublicHandView = Readonly<{
   buttonPlayerId: string;
   smallBlind: number;
   bigBlind: number;
+  ante: number;
   board: readonly Card[];
   pot: number;
   currentBet: number;
@@ -46,6 +47,8 @@ export type PokerHand = Readonly<{
   buttonPlayerId: string;
   smallBlind: number;
   bigBlind: number;
+  /** Paid by every dealt-in player before the blinds. Dead money: it is never returned as an uncalled bet. */
+  ante: number;
   stage: HandStage;
   board: readonly Card[];
   deck: readonly Card[];
@@ -53,7 +56,8 @@ export type PokerHand = Readonly<{
   result: HandResult | null;
 }>;
 
-function validateSeatInputs(players: readonly HandSeatInput[], buttonIndex: number, smallBlind: number, bigBlind: number): void {
+function validateSeatInputs(players: readonly HandSeatInput[], buttonIndex: number, smallBlind: number, bigBlind: number, ante: number): void {
+  if (!Number.isSafeInteger(ante) || ante < 0) throw new RangeError('Ante must be a non-negative safe integer');
   if (players.length < 2) throw new RangeError('A hand requires at least two seated players');
   if (!Number.isInteger(buttonIndex) || buttonIndex < 0 || buttonIndex >= players.length) throw new RangeError('Button index is outside the table');
   if (!Number.isSafeInteger(smallBlind) || !Number.isSafeInteger(bigBlind) || smallBlind < 1 || bigBlind < smallBlind) {
@@ -220,8 +224,9 @@ export function startHand(
   buttonIndex: number,
   smallBlind: number,
   bigBlind: number,
+  ante = 0,
 ): PokerHand {
-  validateSeatInputs(seats, buttonIndex, smallBlind, bigBlind);
+  validateSeatInputs(seats, buttonIndex, smallBlind, bigBlind, ante);
   if (seats.filter((seat) => seat.stack > 0).length < 2) throw new RangeError('At least two players need chips to start a hand');
   const deck = shuffle(createDeck());
   const holeCards = new Map<string, Card[]>();
@@ -234,11 +239,12 @@ export function startHand(
       holeCards.set(seat.id, cards);
     }
   }
+  // Antes come off the top first. A player who cannot cover the ante pays what they have and is all-in.
   const players: HandPlayer[] = seats.map((seat) => ({
     id: seat.id,
-    stack: seat.stack,
+    stack: seat.stack - Math.min(seat.stack, ante),
     streetContribution: 0,
-    totalContribution: 0,
+    totalContribution: Math.min(seat.stack, ante),
     folded: false,
     holeCards: [holeCards.get(seat.id)![0]!, holeCards.get(seat.id)![1]!] as const,
   }));
@@ -259,6 +265,7 @@ export function startHand(
     buttonPlayerId,
     smallBlind,
     bigBlind,
+    ante,
     stage: 'preflop',
     board: [],
     deck,
@@ -299,6 +306,7 @@ export function getPublicHandView(hand: PokerHand, viewerId?: string): PublicHan
     buttonPlayerId: hand.buttonPlayerId,
     smallBlind: hand.smallBlind,
     bigBlind: hand.bigBlind,
+    ante: hand.ante ?? 0,
     board: [...hand.board],
     pot: getHandPot(hand),
     currentBet: hand.bettingRound?.currentBet ?? 0,

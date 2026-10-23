@@ -4,7 +4,7 @@ import { POKER_GLOSSARY } from '../poker/education.ts';
 import { AI_LEVELS, AI_LEVEL_DESCRIPTIONS, AI_LEVEL_LABELS } from '../poker/ai.ts';
 import { node } from './dom.ts';
 import { cardElement } from './components/card.ts';
-import { SITE_NAME, pageLink, siteFooter, siteHeader, type SitePage } from './header.ts';
+import { SITE_NAME, SITE_TAGLINE, SITE_TITLE, pageLink, siteFooter, siteHeader, type SitePage } from './header.ts';
 
 export type { SitePage } from './header.ts';
 
@@ -19,7 +19,7 @@ function arrow(): HTMLElement {
 }
 
 export function renderHomePage(app: HTMLElement, sitePage: SitePage): void {
-  setMeta(`${SITE_NAME} — テキサスホールデム`);
+  setMeta(SITE_TITLE);
   const shell = node('div', 'page-shell');
   shell.append(siteHeader(sitePage));
   const main = node('main', 'landing');
@@ -27,15 +27,16 @@ export function renderHomePage(app: HTMLElement, sitePage: SitePage): void {
   const hero = node('section', 'hero');
   const copy = node('div', 'hero-copy');
   copy.append(node('span', 'eyebrow', 'TEXAS HOLD’EM ARENA'));
-  copy.append(node('h1', 'hero-title', '闘技場で、\n最後の一手を。'));
-  copy.append(node('p', 'hero-lead', '強さの違う最大7人のAIと腕試し。友だちとはリンクを送るだけ。登録なし、無料で、ルールを学びながら遊べるテキサスホールデムです。'));
+  copy.append(node('h1', 'hero-title', SITE_NAME));
+  copy.append(node('p', 'hero-tagline', SITE_TAGLINE));
+  copy.append(node('p', 'hero-lead', '強さの違う最大7人のAIと腕試し。友だちとはリンクを送るだけ。ルールを学びながら遊べるテキサスホールデムです。'));
   const actions = node('div', 'hero-actions');
   const primary = pageLink('AIと対戦する', '/ai');
   primary.className = 'button button-primary';
   const secondary = pageLink('友だちと対戦する', '/online');
   secondary.className = 'button button-secondary';
   actions.append(primary, secondary);
-  copy.append(actions, node('p', 'hero-note', '無料 · アカウント登録不要 · ゲーム内チップのみ'));
+  copy.append(actions);
 
   const art = node('div', 'hero-art');
   art.setAttribute('aria-hidden', 'true');
@@ -57,7 +58,7 @@ export function renderHomePage(app: HTMLElement, sitePage: SitePage): void {
   const items = [
     { href: '/ai', title: 'AI対戦', body: `強さは「${AI_LEVELS.map((level) => AI_LEVEL_LABELS[level]).join('・')}」の4段階。AIは1〜7人から選べます。`, tag: 'SOLO' },
     { href: '/online', title: 'オンライン対戦', body: '部屋を作って招待リンクを共有。最大6人で、手札は本人にだけ表示されます。', tag: 'FRIENDS' },
-    { href: '/terms', title: 'ポーカー用語集', body: 'ブラインドやサイドポットなど、14の用語を短い例つきで確認。', tag: 'LEARN' },
+    { href: '/glossary', title: 'ポーカー用語集', body: `ブラインドやサイドポットなど、${POKER_GLOSSARY.length}の用語を短い例つきで確認。`, tag: 'LEARN' },
     { href: '/hands', title: '役の強さ一覧', body: 'ロイヤルフラッシュからハイカードまで、10種類の役をカードで見比べます。', tag: 'LEARN' },
   ];
   items.forEach((item, index) => {
@@ -102,7 +103,7 @@ function bottomNav(...links: HTMLAnchorElement[]): HTMLElement {
   return nav;
 }
 
-export function renderTermsPage(app: HTMLElement, sitePage: SitePage): void {
+export function renderGlossaryPage(app: HTMLElement, sitePage: SitePage): void {
   setMeta(`ポーカー用語集 — ${SITE_NAME}`);
   const shell = node('div', 'page-shell');
   shell.append(siteHeader(sitePage));
@@ -156,7 +157,7 @@ export function renderHandsPage(app: HTMLElement, sitePage: SitePage): void {
   main.append(list);
   const note = node('aside', 'hand-rules-note');
   note.append(node('strong', '', '覚えておきたいこと'), node('p', '', '役の強さが同じならキッカーを比べます。スートに強弱はありません。7枚すべてではなく、最も強い5枚で役を判定します。'));
-  main.append(note, bottomNav(pageLink('ホームへ戻る', '/'), pageLink('用語集を見る →', '/terms'), pageLink('AIと対戦する →', '/ai')));
+  main.append(note, bottomNav(pageLink('ホームへ戻る', '/'), pageLink('用語集を見る →', '/glossary'), pageLink('AIと対戦する →', '/ai')));
   shell.append(main, siteFooter());
   app.replaceChildren(shell);
 }

@@ -32,6 +32,12 @@ export type AiDecisionContext = Readonly<{
   /** Injectable [0,1) random source so tests are deterministic. */
   random?: () => number;
   activeOpponentCount?: number;
+  /**
+   * Opponents this AI must actually beat when facing a bet: live players who already matched the
+   * current bet or are all-in. Players still to act may yet fold, so counting them as full opponents
+   * made every AI treat a heads-up shove like a multiway pot and fold far too often.
+   */
+  committedOpponentCount?: number;
   /** Players who folded earlier this hand; used only for equity simulation sizing. */
   foldedOpponentCount?: number;
 }>;
@@ -135,8 +141,10 @@ function chooseMediumAction(context: AiDecisionContext): BettingAction {
 /** Strong / strongest: Monte Carlo equity against the live opponents with pot-odds discipline. */
 function chooseEquityAction(context: AiDecisionContext, random: () => number, level: 'strong' | 'strongest'): BettingAction {
   const { legalActions: legal } = context;
-  const opponents = Math.max(1, context.activeOpponentCount ?? 1);
-  const folded = context.foldedOpponentCount ?? 0;
+  const live = Math.max(1, context.activeOpponentCount ?? 1);
+  // When facing a bet only the players already committed to the pot have to be beaten.
+  const opponents = legal.callAmount > 0 ? Math.min(live, Math.max(1, context.committedOpponentCount ?? live)) : live;
+  const folded = (context.foldedOpponentCount ?? 0) + (live - opponents);
   const strongest = level === 'strongest';
   const samples = strongest ? 700 : 220;
   const { equity } = estimateEquity(context.holeCards, context.board, opponents, folded, samples);
@@ -193,8 +201,9 @@ export function chooseAiAction(context: AiDecisionContext): BettingAction {
     return sanitizeAction(context, action);
   }
   // More live opponents reduce confidence in the same made hand or draw.
-  const strength = Math.max(0, estimateAiHandStrength(context.holeCards, context.board) - 0.04 * (opponentCount - 1));
   const { legalActions: legal } = context;
+  const contested = legal.callAmount > 0 ? Math.min(opponentCount, Math.max(1, context.committedOpponentCount ?? opponentCount)) : opponentCount;
+  const strength = Math.max(0, estimateAiHandStrength(context.holeCards, context.board) - 0.04 * (contested - 1));
   const styleName = context.style ?? 'balanced';
   if (!Object.hasOwn(AI_STYLES, styleName)) throw new RangeError('Unknown AI style');
   const style = AI_STYLES[styleName];
@@ -240,6 +249,8 @@ export function buildAiContext(hand: PokerHand, playerId: string, level?: AiLeve
     streetContribution: player.streetContribution,
     currentBet: hand.bettingRound.currentBet,
     activeOpponentCount: Math.max(1, others.filter((candidate) => !candidate.folded).length),
+    committedOpponentCount: Math.max(1, others.filter((candidate) => !candidate.folded
+      && (candidate.stack === 0 || candidate.streetContribution >= hand.bettingRound!.currentBet)).length),
     foldedOpponentCount: others.filter((candidate) => candidate.folded).length,
     ...(level ? { level } : {}),
     ...(random ? { random } : {}),

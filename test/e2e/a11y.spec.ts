@@ -7,7 +7,7 @@ async function expectNoContrastViolations(page: Page): Promise<void> {
   expect(results.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => node.target.join(' ')).join(', ')}`)).toEqual([]);
 }
 
-const STATIC_PAGES = ['/', '/ai', '/online?mock=lobby', '/online?mock=lobby-joined', '/terms', '/hands', '/online?mock=playing', '/online?mock=finished'];
+const STATIC_PAGES = ['/', '/ai', '/online?mock=lobby', '/online?mock=lobby-joined', '/glossary', '/terms', '/privacy', '/hands', '/online?mock=playing', '/online?mock=finished'];
 
 for (const size of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
   for (const path of STATIC_PAGES) {

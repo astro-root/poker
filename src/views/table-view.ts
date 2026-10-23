@@ -13,7 +13,7 @@ import {
 } from '../app/state.ts';
 import { coachAdvice, currentEquity, formatPercent } from '../app/coach.ts';
 import { backToSetup, continueToNextHand, performAction } from '../app/practice.ts';
-import { closeOnlineSession, requestNextOnlineHand, requestRematch } from '../app/online.ts';
+import { closeOnlineSession, renameSelf, requestNextOnlineHand, requestRematch } from '../app/online.ts';
 
 const online = store.online;
 
@@ -36,6 +36,9 @@ function details(summary: string, className: string, open = false): HTMLDetailsE
   return element;
 }
 
+/** Remembers how many community cards the previous render showed (animation only; never game state). */
+let lastBoard = { handNumber: -1, count: 0 };
+
 export function renderPlayView(app: HTMLElement): void {
   const table = store.table;
   if (!table?.hand) return;
@@ -57,11 +60,13 @@ export function renderPlayView(app: HTMLElement): void {
   const stage = node('div', 'play-main');
 
   // ── status bar
-  const level = Math.floor((table.handNumber - 1) / 10) + 1;
+  const level = table.escalateBlinds === false ? 1 : Math.floor((table.handNumber - 1) / 10) + 1;
   const statusBar = node('div', 'table-status');
   const meta = node('div', 'status-meta');
-  meta.append(node('span', 'status-hand', `ハンド ${table.handNumber}`), node('span', 'status-stage', stageLabel(hand.stage)),
-    node('span', 'status-blinds', `Lv.${level} · SB ${formatChips(table.smallBlind)} / BB ${formatChips(table.bigBlind)}`));
+  meta.append(node('span', 'status-hand', table.maxHands ? `ハンド ${table.handNumber} / ${table.maxHands}` : `ハンド ${table.handNumber}`), node('span', 'status-stage', stageLabel(hand.stage)),
+    node('span', 'status-blinds', `${table.escalateBlinds === false ? '' : `Lv.${level} · `}SB ${formatChips(table.smallBlind)} / BB ${formatChips(table.bigBlind)}${table.ante > 0 ? ` · アンティ ${formatChips(table.ante)}` : ''}`));
+  if (isOnline && online.role === 'spectator') meta.append(node('span', 'status-opponents', '観戦中'));
+  else if (isOnline && online.spectators.some((peer) => peer.connected)) meta.append(node('span', 'status-opponents', `観戦 ${online.spectators.filter((peer) => peer.connected).length}人`));
   if (!isOnline) meta.append(node('span', 'status-opponents', `${AI_LEVEL_LABELS[store.ai.level]} · AI ${store.ai.count}人`));
   const actorId = round?.actorId;
   const turnText = hand.stage === 'complete' ? 'ハンド終了' : humanTurn ? 'あなたの番です' : store.aiThinking ? '相手が考え中' : actorId ? `${playerLabel(actorId)}の番` : '進行中';
@@ -74,12 +79,18 @@ export function renderPlayView(app: HTMLElement): void {
     info.href = `/online#room=${online.roomId}`;
     const leave = node('button', 'button button-danger-ghost button-small', '退出');
     leave.type = 'button';
-    leave.title = '退出するとこのハンドはフォールドになり、席は離席扱いになります';
+    leave.title = online.role === 'spectator' ? '観戦をやめます' : '退出するとこのハンドはフォールドになり、席は離席扱いになります';
     leave.addEventListener('click', () => {
-      if (!window.confirm('退出するとこのハンドはフォールドになり、離席扱いになります。退出しますか？')) return;
+      if (online.role !== 'spectator' && !window.confirm('退出するとこのハンドはフォールドになり、離席扱いになります。退出しますか？')) return;
       void closeOnlineSession().finally(() => { window.location.assign('/online'); });
     });
-    controls.append(info, leave);
+    const rename = node('button', 'button button-ghost button-small', '名前変更');
+    rename.type = 'button';
+    rename.addEventListener('click', () => {
+      const next = window.prompt('新しい表示名（20文字以内）', store.playerName);
+      if (next !== null) renameSelf(next);
+    });
+    controls.append(info, rename, leave);
   } else {
     const setup = node('button', 'button button-ghost button-small', '設定を変更');
     setup.type = 'button';
@@ -142,7 +153,17 @@ export function renderPlayView(app: HTMLElement): void {
   center.append(potBox);
   const board = node('div', 'board');
   const boardCards = view.hand?.board ?? [];
-  for (let index = 0; index < 5; index++) board.append(boardCards[index] ? cardElement(boardCards[index]!, false, 'md') : emptyCardSlot('md'));
+  // Only cards that were not on the board at the previous render animate, so re-renders never replay the reveal.
+  const sameHand = lastBoard.handNumber === table.handNumber;
+  const alreadyShown = sameHand ? lastBoard.count : 0;
+  for (let index = 0; index < 5; index++) {
+    const card = boardCards[index];
+    if (!card) { board.append(emptyCardSlot('md')); continue; }
+    const element = cardElement(card, false, 'md');
+    if (index >= alreadyShown && sameHand) element.classList.add('deal-in');
+    board.append(element);
+  }
+  lastBoard = { handNumber: table.handNumber, count: boardCards.length };
   center.append(board);
   const equity = currentEquity();
   if (equity) {
@@ -204,6 +225,7 @@ function renderResult(): HTMLElement {
   }
   if (result?.returned) panel.append(node('p', 'result-sub', `未コール分 ${formatChips(result.returned.amount)} チップを${playerLabel(result.returned.playerId)}へ返却しました。`));
   if (online.winnerId) panel.append(node('p', 'result-champion', `🏆 ${playerLabel(online.winnerId)}がこの対戦に優勝しました。`));
+  else if (online.finished) panel.append(node('p', 'result-champion', '対戦が終了しました（同点）。'));
   return panel;
 }
 
@@ -215,6 +237,13 @@ function renderDock(args: DockArgs): HTMLElement {
   const isOnline = store.mode === 'online-playing';
   const { legal, humanTurn, pot, round } = args;
   const me = hand.players.find((player) => player.id === store.humanId);
+  if (isOnline && online.role === 'spectator') {
+    const watch = node('section', 'dock dock-spectator');
+    watch.setAttribute('aria-label', '観戦中');
+    watch.append(node('strong', 'hero-name', '観戦中'), node('p', 'dock-waiting', '観戦者は手札を見ることも、操作することもできません。'));
+    if (hand.stage === 'complete' && online.finished) watch.append(node('p', 'dock-waiting', '対戦が終了しました。プレイヤーの再戦をお待ちください。'));
+    return watch;
+  }
   const dock = node('section', `dock${humanTurn ? ' is-your-turn' : ''}${store.raiseOpen && legal?.canRaise ? ' raise-open' : ''}`);
   dock.setAttribute('aria-label', 'あなたの手札と操作');
 
@@ -237,7 +266,7 @@ function renderDock(args: DockArgs): HTMLElement {
   const actions = node('div', 'dock-actions');
   const pending = isOnline && online.pending;
   if (hand.stage === 'complete') {
-    if (isOnline && online.winnerId) {
+    if (isOnline && online.finished) {
       const rematch = node('button', 'button button-primary button-large', 'リマッチする');
       rematch.type = 'button';
       rematch.disabled = pending;
@@ -428,7 +457,7 @@ function renderInfo(args: InfoArgs): HTMLElement {
 
   const links = node('nav', 'info-links');
   links.setAttribute('aria-label', 'ポーカーガイド');
-  for (const [label, href] of [['用語集', '/terms'], ['役の強さ一覧', '/hands'], ['ホーム', '/']] as const) {
+  for (const [label, href] of [['用語集', '/glossary'], ['役の強さ一覧', '/hands'], ['ホーム', '/']] as const) {
     const link = node('a', 'link-pill', label) as HTMLAnchorElement;
     link.href = href;
     links.append(link);

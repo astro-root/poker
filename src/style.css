@@ -506,6 +506,60 @@ ul, ol { margin: 0; padding: 0; }
   .site-header { position: static; }
 }
 
+/* ── Footer links, legal pages ─────────────────── */
+.footer-links { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+.site-footer-inner .footer-note { flex-basis: 100%; }
+@media (min-width: 900px) { .site-footer-inner .footer-note { flex-basis: auto; } }
+.hero-tagline { margin-top: 8px; font-size: var(--text-lg); letter-spacing: 0.04em; color: var(--gold-bright); font-weight: 600; }
+.legal { max-width: 860px; }
+.legal-date { font-size: var(--text-sm); color: var(--text-faint); }
+.legal-toc { margin: 24px 0; padding: 18px 20px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.legal-toc-title { font-size: var(--text-md); margin: 0 0 8px; }
+.legal-toc-list { margin: 0; padding-left: 1.4em; display: grid; gap: 4px; }
+.legal-toc-list a { color: var(--text-muted); text-decoration: none; overflow-wrap: anywhere; }
+.legal-toc-list a:hover, .legal-toc-list a:focus-visible { color: var(--gold-bright); text-decoration: underline; }
+.legal-section { padding: 20px 0; border-top: 1px solid var(--line); scroll-margin-top: 80px; }
+.legal-heading { font-size: var(--text-lg); margin: 0 0 10px; }
+.legal-section p { margin: 0 0 10px; line-height: 1.85; color: var(--text-muted); overflow-wrap: anywhere; }
+.legal-pending { color: var(--gold-bright) !important; border-left: 3px solid var(--gold); padding-left: 10px; }
+
+/* ── Host settings ─────────────────────────────── */
+.settings-box { display: grid; gap: 14px; padding-top: 18px; border-top: 1px solid var(--line); margin-top: 8px; }
+.settings-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.preset-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip-option {
+  min-height: 44px; min-width: 56px; padding: 8px 14px; border-radius: 999px; cursor: pointer;
+  background: var(--surface-2); color: var(--text); border: 1px solid var(--line-strong); font: inherit; font-variant-numeric: tabular-nums;
+  transition: background-color .15s ease, border-color .15s ease, transform .1s ease;
+}
+.chip-option:hover:not(:disabled) { border-color: var(--gold); }
+.chip-option:active:not(:disabled) { transform: scale(0.97); }
+.chip-option.is-selected { background: var(--gold); color: var(--gold-ink); border-color: var(--gold-bright); font-weight: 700; }
+.chip-option:disabled { opacity: 0.55; cursor: not-allowed; }
+.check-row { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: var(--text-sm); }
+.check-row input { width: 20px; height: 20px; accent-color: var(--gold); }
+.settings-summary { overflow-wrap: anywhere; }
+.dock-spectator { text-align: center; padding: 16px; }
+.roster-name, .hero-name, .notice-text { overflow-wrap: anywhere; }
+.text-input, .inline-row input { min-width: 0; max-width: 100%; }
+
+/* ── Motion (all disabled by prefers-reduced-motion below) ── */
+@keyframes rise-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes deal-in { from { opacity: 0; transform: translateY(-14px) scale(0.92); } to { opacity: 1; transform: none; } }
+.is-booting .page-shell > main { animation: rise-in .35s ease-out both; }
+.playing-card.deal-in { animation: deal-in .32s cubic-bezier(.2, .8, .2, 1) both; }
+.button, .action-button { transition: background-color .15s ease, border-color .15s ease, transform .1s ease, opacity .15s ease; }
+.button:active:not(:disabled), .action-button:active:not(:disabled) { transform: scale(0.98); }
+.button:disabled, .action-button:disabled { opacity: 0.55; cursor: not-allowed; }
+.notice { transition: background-color .2s ease; }
+@media (max-width: 480px) {
+  .site-header-inner { flex-wrap: wrap; }
+  .page-nav { flex-wrap: wrap; }
+  .page-nav-link { min-height: 40px; }
+  .settings-grid { grid-template-columns: 1fr; }
+}
+@media (hover: none) { .chip-option:hover:not(:disabled) { border-color: var(--line-strong); } }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

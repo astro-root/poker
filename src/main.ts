@@ -3,7 +3,8 @@ import './style.css';
 import { initializeGuestIdentity } from './supabase/client.ts';
 import { hooks, store } from './app/state.ts';
 import { installLifecycleHandlers, joinOnlineRoom } from './app/online.ts';
-import { renderHandsPage, renderHomePage, renderTermsPage, type SitePage } from './ui/pages.ts';
+import { renderGlossaryPage, renderHandsPage, renderHomePage, type SitePage } from './ui/pages.ts';
+import { renderLegalPage } from './ui/legal.ts';
 import { renderPracticeSetup } from './views/setup-view.ts';
 import { renderOnlineLobby } from './views/lobby-view.ts';
 import { renderPlayView } from './views/table-view.ts';
@@ -15,8 +16,10 @@ const root: HTMLElement = app;
 const routePath = window.location.pathname.replace(/\/+$/u, '') || '/';
 const sitePage: SitePage = routePath === '/ai' ? 'ai'
   : routePath === '/online' ? 'online'
-    : routePath === '/terms' ? 'terms'
-      : routePath === '/hands' ? 'hands' : 'home';
+    : routePath === '/glossary' ? 'glossary'
+      : routePath === '/terms' ? 'terms'
+        : routePath === '/privacy' ? 'privacy'
+          : routePath === '/hands' ? 'hands' : 'home';
 
 function render(): void {
   if (store.mode === 'online-lobby') { renderOnlineLobby(root); return; }
@@ -37,8 +40,13 @@ window.addEventListener('keydown', (event) => {
 
 installLifecycleHandlers();
 
+// One-time page entrance: the views re-render on every state change, so this must not live on the render path.
+document.documentElement.classList.add('is-booting');
+window.setTimeout(() => document.documentElement.classList.remove('is-booting'), 700);
+
 if (sitePage === 'home') renderHomePage(root, sitePage);
-else if (sitePage === 'terms') renderTermsPage(root, sitePage);
+else if (sitePage === 'glossary') renderGlossaryPage(root, sitePage);
+else if (sitePage === 'terms' || sitePage === 'privacy') renderLegalPage(root, sitePage);
 else if (sitePage === 'hands') renderHandsPage(root, sitePage);
 else void initializeGuestIdentity().then(async ({ guestId, onlineReady }) => {
   store.humanId = guestId;
