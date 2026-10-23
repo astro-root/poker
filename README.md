@@ -1,6 +1,8 @@
 # Poker Colosseum
 
-強さを選べる最大7人のAIや、招待リンクで集まる友だちと遊べる、無料のテキサスホールデム。アカウント登録は不要です。ゲーム内チップに金銭的価値はありません。
+Poker Colosseum — Online Texas Hold’em. *Step Into the Colosseum.*
+
+強さを選べる最大7人のAIや、招待リンクで集まる友だちと遊べるテキサスホールデム。ゲーム内チップはバーチャルで、金銭的価値はありません。運営: [astro-root](https://astro-root.com) ・ <https://poker.astro-root.com> ・ ©2026 astro-root
 
 公開ドメイン: [`poker.astro-root.com`](https://poker.astro-root.com)
 
@@ -90,3 +92,23 @@ Vercel では Vite プロジェクトとして、ビルドコマンド `npm run 
 | 公開ルーム一覧・自動マッチング | 未実装 |
 | 観戦・オンライン戦績 | 未実装 |
 | 実機・複数端末での公開前確認、`functions deploy` の確認（V-02） | 未実施 |
+
+
+## メンテナンス用スクリプト（`scripts/`）
+
+すべて、リポジトリのルート以外では実行を拒否し、`.env` や秘密情報を扱いません。
+
+| スクリプト | 役割 |
+| --- | --- |
+| `bash scripts/check-env.sh` | git / Node(22.12+) / npm、任意の supabase・vercel・gh の有無を確認 |
+| `bash scripts/status.sh` | ブランチ、変更、リモートとの差分、秘密情報の混入チェック（読み取り専用） |
+| `bash scripts/verify.sh` | 型チェック・テスト・ビルド（`RUN_E2E=1` で Playwright も） |
+| `bash scripts/make-package.sh [--dry-run]` | 追跡対象のファイルだけをZIP化（秘密情報・生成物を除外） |
+| `bash scripts/publish-branch.sh [--execute]` | 専用ブランチへ、一覧を確認したファイルだけコミットしてpush（既定はdry-run、強制pushなし） |
+
+GitHub への push には、事前に `gh auth login` またはSSH鍵などの認証が必要です。トークンをスクリプトやソースに書かないでください。
+
+## ドキュメント
+
+- [`docs/UPDATE_NOTES.md`](docs/UPDATE_NOTES.md): 今回の変更の根拠、未確認事項、デプロイ手順、法務チェックリスト
+- `/terms` `/privacy` は**草案**です。公開前に運営者情報の記入と確認が必要です。

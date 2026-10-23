@@ -1,5 +1,6 @@
 import type { BettingAction } from '../poker/betting.ts';
 import type { TableState } from '../poker/table.ts';
+import type { RoomSettings } from '../poker/settings.ts';
 export { canApplyRoomUpdate } from './room-state.ts';
 import { getFunctionErrorMessage } from './function-error.ts';
 import { getCachedAccessToken, supabase, supabasePublishableKey, supabaseUrl } from './client.ts';
@@ -13,6 +14,11 @@ export type OnlineRoom = Readonly<{
   winnerId: string | null;
   version: number;
   peers: readonly RoomPeer[];
+  /** `spectator` viewers can read the table but never act and never receive hole cards. */
+  role: 'player' | 'spectator';
+  spectators: readonly RoomPeer[];
+  settings: RoomSettings;
+  settingsVersion: number;
   table: TableState | null;
   notice: string;
 }>;
@@ -28,7 +34,10 @@ async function request<T>(action: string, args: Record<string, unknown> = {}): P
 }
 
 export const createRoom = (name: string): Promise<OnlineRoom> => request('create', { name });
-export const joinRoom = (roomId: string, name: string): Promise<OnlineRoom> => request('join', { roomId, name });
+export const joinRoom = (roomId: string, name: string, spectate = false): Promise<OnlineRoom> => request('join', { roomId, name, ...(spectate ? { spectate: true } : {}) });
+export const updateRoomSettings = (roomId: string, settings: RoomSettings, expectedSettingsVersion: number): Promise<OnlineRoom> =>
+  request('settings', { roomId, settings, expectedSettingsVersion });
+export const renameInRoom = (roomId: string, name: string): Promise<OnlineRoom> => request('rename', { roomId, name });
 export const readRoom = (roomId: string, sinceRevision?: number): Promise<OnlineRoom | UnchangedRoom> =>
   request('state', { roomId, ...(sinceRevision === undefined ? {} : { sinceRevision }) });
 export const startRoom = (roomId: string): Promise<OnlineRoom> => request('start', { roomId });

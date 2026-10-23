@@ -1,7 +1,8 @@
-import { applyTableAction, createTable, startNextHand, type TableState } from '../../../src/poker/table.ts';
+import { applyTableAction, createTable, isGameOver, startNextHand, type TableState } from '../../../src/poker/table.ts';
 import { getLegalActions, type BettingAction } from '../../../src/poker/betting.ts';
 import { foldHandPlayer } from '../../../src/poker/hand.ts';
 import { uniqueDisplayName, validateDisplayName } from '../../../src/poker/names.ts';
+import { parseSettings, settingsOrDefault, type RoomSettings } from '../../../src/poker/settings.ts';
 
 // SECURITY: this function reads the JWT payload without verifying its signature. That is only safe
 // because supabase/config.toml sets `verify_jwt = true`, so the platform rejects forged tokens first.
@@ -14,7 +15,18 @@ declare const Deno: {
 
 type Member = Readonly<{ id: string; name: string; lastSeenAt?: number; sittingOut?: boolean }>;
 type RoomTableState = TableState & Readonly<{ turnDeadline?: number | null }>;
-type RoomState = Readonly<{ members: readonly Member[]; notice: string; table: RoomTableState | null; winnerId?: string }>;
+type RoomState = Readonly<{
+  /** Seated players. Only these can act, start, rematch or change settings. */
+  members: readonly Member[];
+  /** Read-only viewers. They never receive hole cards and are never dealt in. */
+  spectators?: readonly Member[];
+  settings?: RoomSettings;
+  /** Incremented on every settings change so a stale form cannot overwrite newer values. */
+  settingsVersion?: number;
+  notice: string;
+  table: RoomTableState | null;
+  winnerId?: string;
+}>;
 type RoomStatus = 'waiting' | 'playing' | 'finished';
 type RoomRow = Readonly<{ id: string; host_user_id: string; status: RoomStatus; revision: number; state: RoomState }>;
 
@@ -27,11 +39,13 @@ const WAITING_ABSENT_MS = 60_000;
 /** A player away this long is "retired": chips stay seated but the table no longer waits for them. */
 const RETIRE_AFTER_MS = 10 * 60_000;
 const MAX_MEMBERS = 6;
+const MAX_SPECTATORS = 20;
+const SPECTATOR_ABSENT_MS = 60_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 export type RoomErrorCode =
   | 'STALE_VERSION' | 'REVISION_CONFLICT' | 'ROOM_FULL' | 'GAME_STARTED' | 'NOT_ENOUGH_PLAYERS'
-  | 'NOT_YOUR_TURN' | 'NOT_A_MEMBER' | 'NOT_HOST' | 'BAD_REQUEST' | 'ROOM_NOT_FOUND' | 'RATE_LIMITED' | 'UNAUTHORIZED';
+  | 'NOT_YOUR_TURN' | 'NOT_A_MEMBER' | 'NOT_HOST' | 'BAD_REQUEST' | 'ROOM_NOT_FOUND' | 'RATE_LIMITED' | 'UNAUTHORIZED' | 'SPECTATOR_FORBIDDEN' | 'STALE_SETTINGS' | 'BAD_SETTINGS';
 
 class RoomError extends Error {
   readonly status: number;
@@ -111,10 +125,40 @@ function verifiedUserId(request: Request): string {
   }
 }
 
-async function enforceUserRateLimit(url: string, serviceKey: string, userId: string, now: number): Promise<void> {
+type Limit = Readonly<{ bucket: string; limit: number; windowMs: number }>;
+/**
+ * Per-action budgets, keyed by the authenticated user id (not the IP, so shared mobile networks are not
+ * penalised). Mutations are counted in the database so the limit holds across Edge Function instances.
+ */
+const LIMITS: Readonly<Record<string, Limit>> = {
+  create: { bucket: 'create', limit: 5, windowMs: 60_000 },
+  join: { bucket: 'join', limit: 20, windowMs: 60_000 },
+  rename: { bucket: 'name', limit: 5, windowMs: 10_000 },
+  settings: { bucket: 'settings', limit: 10, windowMs: 5_000 },
+  start: { bucket: 'game', limit: 10, windowMs: 1_000 },
+  action: { bucket: 'game', limit: 10, windowMs: 1_000 },
+  'next-hand': { bucket: 'game', limit: 10, windowMs: 1_000 },
+  rematch: { bucket: 'rematch', limit: 5, windowMs: 10_000 },
+};
+/** State polling is the hottest path, so it is limited in memory (best effort, per instance) to avoid a database write per poll. */
+const STATE_LIMIT = { limit: 10, windowMs: 5_000 };
+const stateWindows = new Map<string, { startedAt: number; count: number }>();
+
+function enforceStateRateLimit(userId: string, now: number): void {
+  const entry = stateWindows.get(userId);
+  if (!entry || now - entry.startedAt >= STATE_LIMIT.windowMs) {
+    if (stateWindows.size > 5_000) stateWindows.clear();
+    stateWindows.set(userId, { startedAt: now, count: 1 });
+    return;
+  }
+  entry.count++;
+  if (entry.count > STATE_LIMIT.limit) throw new RoomError(429, '更新の頻度が高すぎます。少し待ってからもう一度お試しください。', 'RATE_LIMITED');
+}
+
+async function enforceUserRateLimit(url: string, serviceKey: string, userId: string, now: number, limit: Limit): Promise<void> {
   const allowed = await supabaseRequest<boolean>(url, serviceKey, '/rest/v1/rpc/consume_room_rate_limit', {
     method: 'POST',
-    body: JSON.stringify({ p_user_id: userId, p_now: new Date(now).toISOString(), p_limit: 10, p_window_ms: 1_000 }),
+    body: JSON.stringify({ p_user_id: userId, p_bucket: limit.bucket, p_now: new Date(now).toISOString(), p_limit: limit.limit, p_window_ms: limit.windowMs }),
   });
   if (!allowed) throw new RoomError(429, '操作が多すぎます。少し待ってからもう一度お試しください。', 'RATE_LIMITED');
 }
@@ -206,12 +250,17 @@ function resolveExpiredTurnSafely(state: RoomState, now: number): RoomState {
 
 function finishIfNecessary(state: RoomState, status: RoomStatus): { state: RoomState; status: RoomStatus } {
   const table = state.table;
-  if (status !== 'playing' || table?.hand?.stage !== 'complete') return { state, status };
-  const funded = table.seats.filter((seat) => seat.stack > 0);
-  if (funded.length > 1) return { state, status };
-  const winnerId = funded[0]?.id;
-  const winnerName = state.members.find((member) => member.id === winnerId)?.name ?? 'プレイヤー';
-  return { state: { ...state, winnerId, notice: `${winnerName}の優勝です。` }, status: 'finished' };
+  if (status !== 'playing' || !table || !isGameOver(table)) return { state, status };
+  const ranked = table.seats.filter((seat) => seat.stack > 0).sort((a, b) => b.stack - a.stack);
+  const top = ranked[0];
+  const nameOf = (id: string | undefined): string => state.members.find((member) => member.id === id)?.name ?? 'プレイヤー';
+  if (!top) return { state: { ...state, winnerId: undefined, notice: '対戦が終了しました。' }, status: 'finished' };
+  const tied = ranked.filter((seat) => seat.stack === top.stack);
+  if (tied.length > 1) {
+    return { state: { ...state, winnerId: undefined, notice: `規定ハンド数が終了しました。${tied.map((seat) => nameOf(seat.id)).join('・')}の同点です。` }, status: 'finished' };
+  }
+  const limitReached = table.maxHands !== null && table.maxHands !== undefined && table.handNumber >= table.maxHands && ranked.length > 1;
+  return { state: { ...state, winnerId: top.id, notice: limitReached ? `規定ハンド数が終了しました。${nameOf(top.id)}がチップ首位で優勝です。` : `${nameOf(top.id)}の優勝です。` }, status: 'finished' };
 }
 
 function fail(status: number, error: string, code?: RoomErrorCode): Response {
@@ -258,6 +307,10 @@ function publicRoom(row: RoomRow, viewerId: string, now: number) {
     winnerId: room.winnerId ?? null,
     version: row.state.table?.version ?? 0,
     peers: room.members.map((member) => ({ id: member.id, name: member.name, connected: isConnected(member, now) })),
+    role: room.members.some((member) => member.id === viewerId) ? 'player' : 'spectator',
+    spectators: (room.spectators ?? []).map((member) => ({ id: member.id, name: member.name, connected: isConnected(member, now) })),
+    settings: settingsOrDefault(room.settings),
+    settingsVersion: room.settingsVersion ?? 0,
     table,
     notice: room.notice,
   };
@@ -277,9 +330,8 @@ Deno.serve(async (request: Request) => {
     const action = body?.action;
     const now = Date.now();
 
-    if (action === 'create' || action === 'join' || action === 'action') {
-      await enforceUserRateLimit(url, serviceKey, userId, now);
-    }
+    if (action === 'state') enforceStateRateLimit(userId, now);
+    else if (typeof action === 'string' && Object.hasOwn(LIMITS, action)) await enforceUserRateLimit(url, serviceKey, userId, now, LIMITS[action]!);
 
     if (action === 'create') {
       try { await cleanupExpiredRooms(url, serviceKey, now); } catch (error) {
@@ -306,8 +358,14 @@ Deno.serve(async (request: Request) => {
     let row = found as RoomRow;
 
     const isMember = row.state.members.some((member) => member.id === userId);
-    if (action !== 'join' && !isMember) return fail(403, 'このルームの参加者ではありません。', 'NOT_A_MEMBER');
-    if (action === 'join' && !isMember && row.status !== 'waiting') return fail(409, 'この対戦はすでに始まっています。', 'GAME_STARTED');
+    const isSpectator = (row.state.spectators ?? []).some((member) => member.id === userId);
+    const wantsToSpectate = action === 'join' && body.spectate === true && !isMember;
+    // Spectators may only read state, rename themselves, rejoin, or leave. Everything else is a player action.
+    if (action !== 'join' && !isMember) {
+      if (isSpectator && !['state', 'leave', 'rename'].includes(action)) return fail(403, '観戦中はこの操作はできません。', 'SPECTATOR_FORBIDDEN');
+      if (!isSpectator) return fail(403, 'このルームの参加者ではありません。', 'NOT_A_MEMBER');
+    }
+    if (action === 'join' && !isMember && !wantsToSpectate && row.status !== 'waiting') return fail(409, 'この対戦はすでに始まっています。観戦として参加できます。', 'GAME_STARTED');
 
     const timedState = resolveExpiredTurnSafely(row.state, now);
     const timedGame = finishIfNecessary(timedState, row.status);
@@ -321,7 +379,22 @@ Deno.serve(async (request: Request) => {
     const markPresent = (state: RoomState): RoomState => ({
       ...state,
       members: state.members.map((member) => member.id === userId ? { ...member, lastSeenAt: now } : member),
+      ...(state.spectators ? { spectators: state.spectators.map((member) => member.id === userId ? { ...member, lastSeenAt: now } : member) } : {}),
     });
+
+    if (wantsToSpectate) {
+      const live = (row.state.spectators ?? []).filter((member) => member.id === userId || now - (member.lastSeenAt ?? 0) < SPECTATOR_ABSENT_MS);
+      let spectators: Member[];
+      if (live.some((member) => member.id === userId)) spectators = live.map((member) => member.id === userId ? { ...member, lastSeenAt: now } : member);
+      else {
+        if (live.length >= MAX_SPECTATORS) return fail(409, '観戦席が満員です。', 'ROOM_FULL');
+        const name = cleanName(body.name, [...row.state.members, ...live].map((entry) => entry.name));
+        spectators = [...live, { id: userId, name, lastSeenAt: now }];
+      }
+      const saved = await saveRoom(url, serviceKey, row, { ...row.state, spectators });
+      if (!saved) return fail(409, 'ルームが更新されました。もう一度お試しください。', 'REVISION_CONFLICT');
+      return response({ ok: true, room: publicRoom(saved, userId, now) });
+    }
 
     if (action === 'join') {
       const base = row.state.members.some((member) => member.id === userId) ? markPresent(row.state) : row.state;
@@ -330,14 +403,37 @@ Deno.serve(async (request: Request) => {
       let state: RoomState;
       if (!member) {
         if (pruned.state.members.length >= MAX_MEMBERS) return fail(409, 'このルームは満員です（最大6人）。', 'ROOM_FULL');
-        const name = cleanName(body.name, pruned.state.members.map((entry) => entry.name));
-        state = { ...pruned.state, members: [...pruned.state.members, { id: userId, name, lastSeenAt: now }], notice: `${name}が参加しました。` };
+        const name = cleanName(body.name, [...pruned.state.members, ...(pruned.state.spectators ?? [])].filter((entry) => entry.id !== userId).map((entry) => entry.name));
+        state = { ...pruned.state, members: [...pruned.state.members, { id: userId, name, lastSeenAt: now }],
+          // A spectator who takes a seat stops being a spectator: the two roles never overlap.
+          ...(pruned.state.spectators ? { spectators: pruned.state.spectators.filter((entry) => entry.id !== userId) } : {}),
+          notice: `${name}が参加しました。` };
       } else {
         state = { ...pruned.state, members: pruned.state.members.map((entry) => entry.id === userId ? { ...entry, lastSeenAt: now, sittingOut: false } : entry) };
       }
       const data = await saveRoom(url, serviceKey, row, state, row.status, pruned.hostId !== row.host_user_id ? pruned.hostId : undefined);
       if (!data) return fail(409, 'ルームが更新されました。もう一度参加してください。', 'REVISION_CONFLICT');
       return response({ ok: true, room: publicRoom(data as RoomRow, userId, now) });
+    }
+
+    if (action === 'rename') {
+      if (typeof body.name !== 'string' || body.name.trim() === '') throw new RoomError(400, '名前を入力してください。', 'BAD_REQUEST');
+      const everyone = [...row.state.members, ...(row.state.spectators ?? [])];
+      const self = everyone.find((member) => member.id === userId)!;
+      const name = cleanName(body.name, everyone.filter((member) => member.id !== userId).map((member) => member.name));
+      if (name === self.name) return response({ ok: true, room: publicRoom(row, userId, now) });
+      // Only the display name changes: ids, seats, chips, cards and host rights are untouched.
+      const renamed = (list: readonly Member[]): Member[] => list.map((member) => member.id === userId ? { ...member, name, lastSeenAt: now } : member);
+      const saved = await saveRoom(url, serviceKey, row, { ...row.state, members: renamed(row.state.members),
+        ...(row.state.spectators ? { spectators: renamed(row.state.spectators) } : {}), notice: `${self.name}が名前を${name}に変更しました。` });
+      if (!saved) return fail(409, 'ルームの状態が更新されました。もう一度お試しください。', 'REVISION_CONFLICT');
+      return response({ ok: true, room: publicRoom(saved, userId, now) });
+    }
+
+    if (action === 'leave' && !isMember) {
+      const saved = await saveRoom(url, serviceKey, row, { ...row.state, spectators: (row.state.spectators ?? []).filter((member) => member.id !== userId) });
+      if (!saved) return fail(409, 'ルームの状態が更新されました。もう一度お試しください。', 'REVISION_CONFLICT');
+      return response({ ok: true, room: null });
     }
 
     if (action === 'leave') {
@@ -382,7 +478,7 @@ Deno.serve(async (request: Request) => {
       return response({ ok: true, room: publicRoom(rows[0], userId, now) });
     }
 
-    const requesterBefore = row.state.members.find((member) => member.id === userId)!;
+    const requesterBefore = (row.state.members.find((member) => member.id === userId) ?? (row.state.spectators ?? []).find((member) => member.id === userId))!;
     row = { ...row, state: markPresent(row.state) };
     if (row.status === 'waiting') {
       const pruned = pruneWaitingRoom(row.state, row.host_user_id, now);
@@ -397,7 +493,7 @@ Deno.serve(async (request: Request) => {
       const unchangedRequest = Number.isSafeInteger(body.sinceRevision) && body.sinceRevision === row.revision;
       const lastSeen = Number.isSafeInteger(requesterBefore.lastSeenAt) ? requesterBefore.lastSeenAt as number : -Infinity;
       let current = row;
-      if (requesterBefore.sittingOut) {
+      if (isMember && requesterBefore.sittingOut) {
         // Someone who is polling is back: bring them to the next hand (this is a visible change, so bump the revision).
         const saved = await saveRoom(url, serviceKey, row, { ...row.state, members: row.state.members.map((member) => member.id === userId ? { ...member, sittingOut: false } : member) });
         if (!saved) return fail(409, 'ルームの状態が更新されました。もう一度お試しください。', 'REVISION_CONFLICT');
@@ -412,14 +508,26 @@ Deno.serve(async (request: Request) => {
 
     let nextState: RoomState;
     let status = row.status;
-    if (action === 'start') {
+    if (action === 'settings') {
+      if (row.host_user_id !== userId) return fail(403, '設定を変更できるのはホストだけです。', 'NOT_HOST');
+      if (row.status !== 'waiting') return fail(409, '対戦開始後は設定を変更できません。', 'GAME_STARTED');
+      const parsed = parseSettings(body.settings);
+      if (!parsed.ok) return fail(400, parsed.error, 'BAD_SETTINGS');
+      const currentVersion = row.state.settingsVersion ?? 0;
+      if (!Number.isSafeInteger(body.expectedSettingsVersion) || body.expectedSettingsVersion !== currentVersion) {
+        return fail(409, '設定が他の操作で更新されました。最新の設定を確認してください。', 'STALE_SETTINGS');
+      }
+      nextState = { ...row.state, settings: parsed.settings, settingsVersion: currentVersion + 1, notice: 'ホストが設定を変更しました。' };
+    } else if (action === 'start') {
       if (row.host_user_id !== userId) return fail(403, '対戦を開始できるのはホストです。', 'NOT_HOST');
       if (row.status !== 'waiting') return fail(409, '2人以上が参加してから開始してください。', 'GAME_STARTED');
       const present = row.state.members.filter((member) => isConnected(member, now));
       if (present.length < 2) return fail(409, '在席中のプレイヤーが2人以上必要です。', 'NOT_ENOUGH_PLAYERS');
       // Absent members keep a seat (and can return with `join`) but are not dealt into the first hand.
       const away = new Set(row.state.members.filter((member) => !isConnected(member, now)).map((member) => member.id));
-      const base = createTable(row.state.members.map((member) => ({ id: member.id, stack: 1_000 })), 5, 10);
+      const settings = settingsOrDefault(row.state.settings);
+      const base = createTable(row.state.members.map((member) => ({ id: member.id, stack: settings.startingStack })), settings.smallBlind, settings.bigBlind,
+        { ante: settings.ante, maxHands: settings.maxHands, escalateBlinds: settings.escalateBlinds });
       const table = withTurnDeadline(startNextHand(base, away), now);
       nextState = {
         ...row.state,
@@ -446,6 +554,8 @@ Deno.serve(async (request: Request) => {
       nextState = finishedGame.state;
       status = finishedGame.status;
     } else if (action === 'rematch') {
+      // Several players tapping at once: the first wins the revision race, the rest see the finished reset and get the same room back.
+      if (row.status === 'waiting' && row.state.table === null) return response({ ok: true, room: publicRoom(row, userId, now) });
       if (row.status !== 'finished') return fail(409, '終了した対戦でのみリマッチできます。');
       const requester = row.state.members.find((member) => member.id === userId);
       if (!requester || !isConnected(requester, now)) return fail(403, '在席中のプレイヤーのみリマッチできます。', 'NOT_A_MEMBER');
@@ -489,6 +599,11 @@ Deno.serve(async (request: Request) => {
     } else return fail(400, '操作が正しくありません。', 'BAD_REQUEST');
 
     const updated = await saveRoom(url, serviceKey, row, nextState, status);
+    if (!updated && action === 'rematch') {
+      // Lost the race to another player's rematch tap: if the room is already reset, return it instead of erroring.
+      const latest = await getRoom(url, serviceKey, row.id);
+      if (latest && latest.status === 'waiting' && latest.state.table === null) return response({ ok: true, room: publicRoom(latest, userId, now) });
+    }
     if (!updated) return fail(409, '同時に操作がありました。最新の状態に更新してください。', 'REVISION_CONFLICT');
     return response({ ok: true, room: publicRoom(updated as RoomRow, userId, now) });
   } catch (error) {

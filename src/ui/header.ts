@@ -1,7 +1,11 @@
 import { node } from './dom.ts';
 
-export type SitePage = 'home' | 'ai' | 'online' | 'terms' | 'hands';
+export type SitePage = 'home' | 'ai' | 'online' | 'glossary' | 'hands' | 'terms' | 'privacy';
 export const SITE_NAME = 'Poker Colosseum';
+/** Browser title and SEO/share metadata. The logo and headings use SITE_NAME alone. */
+export const SITE_TITLE = 'Poker Colosseum — Online Texas Hold’em';
+export const SITE_TAGLINE = 'Step Into the Colosseum.';
+export const PARENT_SITE_URL = 'https://astro-root.com';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -54,7 +58,7 @@ export function siteHeader(page: SitePage): HTMLElement {
     pageLink('ホーム', '/', page === 'home'),
     pageLink('AI対戦', '/ai', page === 'ai'),
     pageLink('オンライン', '/online', page === 'online'),
-    pageLink('用語集', '/terms', page === 'terms'),
+    pageLink('用語集', '/glossary', page === 'glossary'),
     pageLink('役一覧', '/hands', page === 'hands'),
   );
   inner.append(brandLink(), nav);
@@ -66,8 +70,17 @@ export function siteFooter(): HTMLElement {
   const footer = node('footer', 'site-footer');
   const inner = node('div', 'site-footer-inner');
   const left = node('div', 'footer-brand');
-  left.append(logoMark(22), node('span', '', `${SITE_NAME} · テキサスホールデム`));
-  inner.append(left, node('p', 'footer-note', 'すべてのチップはゲーム内専用です。現金や賞金はありません。'));
+  left.append(logoMark(22), node('span', '', SITE_NAME));
+  const nav = node('nav', 'footer-links');
+  nav.setAttribute('aria-label', 'フッター');
+  nav.append(pageLink('利用規約', '/terms'), pageLink('プライバシーポリシー', '/privacy'));
+  const parent = node('a', 'page-nav-link', 'astro-root') as HTMLAnchorElement;
+  parent.href = PARENT_SITE_URL;
+  parent.target = '_blank';
+  parent.rel = 'noopener noreferrer';
+  parent.setAttribute('aria-label', 'astro-root（親サイト・新しいタブで開きます）');
+  nav.append(parent);
+  inner.append(left, nav, node('p', 'footer-note', '©2026 astro-root'));
   footer.append(inner);
   return footer;
 }

@@ -2,6 +2,7 @@ import { applyTableAction, createTable, startNextHand, type TableState } from '.
 import { getLegalActions } from '../poker/betting.ts';
 import type { OnlineRoom, RoomPeer } from '../supabase/online-room.ts';
 import { applyOnlineRoom } from './online.ts';
+import { DEFAULT_SETTINGS } from '../poker/settings.ts';
 import { store } from './state.ts';
 
 /**
@@ -28,7 +29,7 @@ function playUntilHumanTurn(table: TableState, me: string): TableState {
 
 export function applyMockOnline(kind: string): 'lobby' | 'room' | null {
   const me = store.humanId;
-  const base = { roomId: 'a'.repeat(36), hostId: me, revision: 1, version: 0, notice: '' };
+  const base = { roomId: 'a'.repeat(36), hostId: me, revision: 1, version: 0, notice: '', role: 'player' as const, spectators: [], settings: DEFAULT_SETTINGS, settingsVersion: 0 };
   if (kind === 'lobby') return 'lobby';
   if (kind === 'lobby-joined') {
     applyOnlineRoom({ ...base, status: 'waiting', winnerId: null, peers: peers(me), table: null, notice: '招待リンクを共有して友だちを待っています。' });

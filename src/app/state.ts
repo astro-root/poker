@@ -7,6 +7,7 @@ import type { EquityEstimate } from '../poker/equity.ts';
 import { formatChips } from '../ui/dom.ts';
 import { cardLabel } from '../ui/components/card.ts';
 import type { RoomPeer } from '../supabase/online-room.ts';
+import { DEFAULT_SETTINGS, type RoomSettings } from '../poker/settings.ts';
 
 export type AppMode = 'practice' | 'online-lobby' | 'online-playing';
 export type AiSettings = Readonly<{ level: AiLevel; count: number }>;
@@ -99,6 +100,18 @@ export const store = {
     roomId: '', revision: 0, pollFailures: 0, sessionEpoch: 0, host: false, started: false,
     winnerId: null as string | null, status: '', error: '', peers: [] as RoomPeer[],
     names: new Map<string, string>(), pollTimer: undefined as number | undefined, pending: false,
+    /** True while a poll request is on the wire; prevents overlapping polls. */
+    polling: false,
+    /** The whole game (not just one hand) is over; includes ties, where there is no single winner. */
+    finished: false,
+    role: 'player' as 'player' | 'spectator',
+    spectators: [] as RoomPeer[],
+    settings: DEFAULT_SETTINGS as RoomSettings,
+    settingsVersion: 0,
+    /** Unsaved host edits; survives re-renders caused by polling. Null when the form matches the server. */
+    settingsDraft: null as RoomSettings | null,
+    /** Set when an invite hit a started game, so the lobby can offer to watch instead. */
+    spectateOffer: '',
   },
 };
 

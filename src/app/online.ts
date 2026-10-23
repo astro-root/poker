@@ -1,10 +1,11 @@
 import type { BettingAction } from '../poker/betting.ts';
 import {
   canApplyRoomUpdate, createRoom, joinRoom, leaveRoom, leaveRoomKeepalive, nextRoomHand, readRoom,
-  rematchRoom, startRoom as startServerRoom, submitRoomAction, type OnlineRoom,
+  rematchRoom, renameInRoom, updateRoomSettings, startRoom as startServerRoom, submitRoomAction, type OnlineRoom,
 } from '../supabase/online-room.ts';
 import { shouldLeaveOnPageHide } from '../supabase/room-state.ts';
-import { hooks, store } from './state.ts';
+import { hooks, savePlayerName, store } from './state.ts';
+import { parseSettings, type RoomSettings } from '../poker/settings.ts';
 
 const online = store.online;
 
@@ -30,7 +31,12 @@ export async function closeOnlineSession(): Promise<void> {
   online.pollFailures = 0;
   online.started = false;
   online.winnerId = null;
+  online.finished = false;
   online.peers = [];
+  online.spectators = [];
+  online.role = 'player';
+  online.settingsDraft = null;
+  online.spectateOffer = '';
   online.names.clear();
   window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
 }
@@ -43,8 +49,16 @@ export function applyOnlineRoom(room: OnlineRoom, expectedRoomId?: string): void
   online.host = room.hostId === store.humanId;
   online.started = room.status === 'playing';
   online.winnerId = room.winnerId;
+  online.finished = room.status === 'finished';
   online.peers = [...room.peers];
-  online.names = new Map(room.peers.map((peer) => [peer.id, peer.name]));
+  online.role = room.role ?? 'player';
+  online.spectators = [...(room.spectators ?? [])];
+  if (room.settingsVersion !== online.settingsVersion) online.settingsDraft = null;
+  online.settings = room.settings ?? online.settings;
+  online.settingsVersion = room.settingsVersion ?? 0;
+  online.names = new Map([...room.peers, ...(room.spectators ?? [])].map((peer) => [peer.id, peer.name]));
+  const mine = [...room.peers, ...(room.spectators ?? [])].find((peer) => peer.id === store.humanId);
+  if (mine && mine.name !== store.playerName) savePlayerName(mine.name);
   if (room.table) {
     if (store.table?.handNumber !== room.table.handNumber && store.table?.hand) {
       store.humanStackAtHandStart = store.table.hand.players.find((p) => p.id === store.humanId)?.stack ?? store.humanStackAtHandStart;
@@ -61,8 +75,9 @@ export function applyOnlineRoom(room: OnlineRoom, expectedRoomId?: string): void
 }
 
 export async function refreshOnlineRoom(): Promise<void> {
-  if (!online.roomId || online.pending) return;
+  if (!online.roomId || online.pending || online.polling) return;
   const requested = online.roomId;
+  online.polling = true;
   try {
     const result = await readRoom(requested, online.revision);
     online.pollFailures = 0;
@@ -76,6 +91,8 @@ export async function refreshOnlineRoom(): Promise<void> {
     online.pollFailures++;
     online.error = error instanceof Error ? error.message : 'ルーム状態を取得できませんでした。';
     hooks.render();
+  } finally {
+    online.polling = false;
   }
 }
 
@@ -83,7 +100,9 @@ export function startOnlinePolling(): void {
   if (online.pollTimer) window.clearTimeout(online.pollTimer);
   const schedule = (): void => {
     if (!online.roomId) return;
-    const base = document.hidden ? 10_000 : 1_500;
+    // Idle screens (lobby, finished) poll slowly; a live hand polls faster so opponents' moves show up quickly.
+    const live = online.started && store.table?.hand?.stage !== 'complete';
+    const base = document.hidden ? 10_000 : live ? 1_200 : 3_000;
     const delay = online.pollFailures === 0 ? base : Math.min(30_000, base * 2 ** Math.min(online.pollFailures, 5));
     online.pollTimer = window.setTimeout(() => { void refreshOnlineRoom().finally(schedule); }, delay);
   };
@@ -108,18 +127,20 @@ export async function createOnlineRoom(): Promise<void> {
   }
 }
 
-export async function joinOnlineRoom(roomId: string): Promise<void> {
+export async function joinOnlineRoom(roomId: string, spectate = false): Promise<void> {
   if (!/^[a-f0-9]{36}$/u.test(roomId)) { online.error = '招待リンクが正しくありません。'; hooks.render(); return; }
   const epoch = online.sessionEpoch;
   try {
     if (!store.guestOnlineReady) throw new Error(NOT_READY);
-    const room = await joinRoom(roomId, store.playerName);
+    const room = await joinRoom(roomId, store.playerName, spectate);
     if (epoch !== online.sessionEpoch) return;
     store.mode = room.status === 'playing' ? 'online-playing' : 'online-lobby';
     applyOnlineRoom(room);
     startOnlinePolling();
   } catch (error) {
     online.error = error instanceof Error ? error.message : 'ルームに参加できませんでした。';
+    // A started game cannot be joined as a player, but it can be watched.
+    online.spectateOffer = /すでに始まって/u.test(online.error) ? roomId : '';
     hooks.render();
   }
 }
@@ -164,4 +185,18 @@ export function requestNextOnlineHand(): void {
 export function requestRematch(): void {
   const roomId = online.roomId;
   withPending(() => rematchRoom(roomId).then((room) => applyOnlineRoom(room, roomId)), 'リマッチを開始できませんでした。');
+}
+
+export function saveRoomSettings(draft: RoomSettings): void {
+  const checked = parseSettings(draft);
+  if (!checked.ok) { online.error = checked.error; hooks.render(); return; }
+  const roomId = online.roomId;
+  withPending(() => updateRoomSettings(roomId, checked.settings, online.settingsVersion).then((room) => applyOnlineRoom(room, roomId)), '設定を保存できませんでした。');
+}
+
+/** Changes only this user's own display name; the server decides uniqueness and validity. */
+export function renameSelf(raw: string): void {
+  const roomId = online.roomId;
+  if (!roomId) { savePlayerName(raw); hooks.render(); return; }
+  withPending(() => renameInRoom(roomId, raw).then((room) => applyOnlineRoom(room, roomId)), '名前を変更できませんでした。');
 }
