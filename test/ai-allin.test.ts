@@ -79,7 +79,7 @@ test('AI shoves and another AI calls: the hand runs to showdown and chips are co
   const table = seated([1000, 1000]);
   const done = finishWith(act(table, { type: 'all-in' }), () => ({ type: 'call' }));
   assert.equal(done.hand!.stage, 'complete');
-  assert.equal(done.hand?.result?.type, 'showdown');
+  assert.equal(done.hand!.result!.type, 'showdown');
   assert.equal(done.hand!.board.length, 5);
   assert.equal(total(done), 2000);
 });
@@ -89,8 +89,8 @@ test('AI shoves and the other AI folds: shover wins without showdown and the bli
   const shover = actorOf(table);
   const done = finishWith(act(table, { type: 'all-in' }), () => ({ type: 'fold' }));
   assert.equal(done.hand!.stage, 'complete');
-  assert.equal(done.hand?.result?.type, 'uncontested');
-  if (done.hand?.result?.type === 'uncontested') assert.equal(done.hand?.result?.winnerId, shover);
+  assert.equal(done.hand!.result!.type, 'uncontested');
+  if (done.hand!.result!.type === 'uncontested') assert.equal(done.hand!.result!.winnerId, shover);
   assert.equal(total(done), 2000);
   assert.ok(done.seats.find((seat) => seat.id === shover)!.stack > 1000);
 });
@@ -102,9 +102,9 @@ test('several AIs in turn: call, fold, call after one shove keeps the pot and bo
   const plan: BettingAction[] = [{ type: 'call' }, { type: 'fold' }, { type: 'call' }];
   for (const action of plan) table = act(table, action);
   assert.equal(table.hand!.stage, 'complete');
-  assert.equal(table.hand?.result?.type, 'showdown');
+  assert.equal(table.hand!.result!.type, 'showdown');
   assert.equal(total(table), 4000);
-  const contenders = Object.keys(table.hand?.result?.type === 'showdown' ? table.hand?.result?.settlement?.hands : {});
+  const contenders = Object.keys(table.hand!.result!.type === 'showdown' ? table.hand!.result!.settlement.hands : {});
   assert.equal(contenders.length, 3);
   assert.ok(contenders.includes(shover));
 });
