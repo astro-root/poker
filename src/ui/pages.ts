@@ -161,3 +161,82 @@ export function renderHandsPage(app: HTMLElement, sitePage: SitePage): void {
   shell.append(main, siteFooter());
   app.replaceChildren(shell);
 }
+
+
+type RuleSection = Readonly<{ title: string; paragraphs: readonly string[] }>;
+
+const RULES: readonly RuleSection[] = [
+  { title: '1. ゲームの目的', paragraphs: [
+    'テキサスホールデムは、自分の手札2枚と、テーブル中央に公開される共通カード5枚の合計7枚から、最も強い5枚で役を作って競うゲームです。',
+    '最後まで残って最も強い役を持つか、全員を降ろしてポットを獲得すれば、そのハンドの勝ちです。ここではバーチャルチップだけを使います。',
+  ] },
+  { title: '2. ハンドの準備', paragraphs: [
+    'ディーラーボタン（D）は、ハンドごとに左隣へ移ります。ボタンの左隣がスモールブラインド、その隣がビッグブラインドで、カードが配られる前に強制的にチップを出します。',
+    'ルームの設定でアンティが決まっている場合は、全員がブラインドより先に同じ額を出します。',
+    '各プレイヤーに、自分だけが見られる手札が2枚配られます。',
+  ] },
+  { title: '3. ハンドの流れ', paragraphs: [
+    '①プリフロップ：手札が配られた直後のベッティングラウンド。ビッグブラインドの左隣から行動します。',
+    '②フロップ：共通カードが3枚公開されます。ボタンの左隣から行動します。',
+    '③ターン：4枚目の共通カードが公開されます。',
+    '④リバー：5枚目の共通カードが公開されます。最後のベッティングラウンドです。',
+    '⑤ショーダウン：最後まで残った人が手札を公開し、役を比べます。全員がフォールドした場合は、公開せずに残った1人が勝ちます。',
+  ] },
+  { title: '4. できる行動', paragraphs: [
+    'チェック：誰もベットしていないとき、チップを出さずに順番を進めます。',
+    'ベット／レイズ：チップを賭ける、または相手の賭け額を上げます。レイズは、直前の上げ幅以上にする必要があります。',
+    'コール：相手の賭け額に合わせます。',
+    'フォールド：そのハンドから降ります。すでに出したチップは戻りません。',
+    'オールイン：残りのチップをすべて賭けます。誤操作を防ぐため、実行前にもう一度確認が出ます。',
+  ] },
+  { title: '5. オールインとサイドポット', paragraphs: [
+    'チップが足りないままコールすると、その人は持っている分だけでオールインになります。オールインした人は、自分が出した額までのポットだけを争えます。',
+    'それより多く賭けた人たちの間では、サイドポットが別に作られ、その分は残りの人だけで争います。誰にもコールされなかった超過分は、本人に返ります。',
+    '全員がオールインした場合は、行動なしで残りの共通カードが公開されます。',
+  ] },
+  { title: '6. 勝敗と引き分け', paragraphs: [
+    '役の強さは「役一覧」で確認できます。同じ役のときは、まず役を作っている数字、次にキッカー（残りの最も強いカード）で比べます。スートに強弱はありません。',
+    '完全に同じ強さなら、ポットは均等に分けられます。',
+  ] },
+  { title: '7. このサービス独自のルール', paragraphs: [
+    '設定：初期スタック、ハンド数、ブラインド、アンティ、ブラインドの上昇、手役の表示は、ホストがルーム設定で決めます。対戦中の変更は次のハンドから反映され、初期スタックは変更できません。',
+    'ハンド数：指定したハンド数を終えるとゲームが終わり、チップが最も多い人が優勝します。「無制限」なら、1人以外のチップがなくなるまで続きます。',
+    'ブラインドの上昇：有効な場合、10ハンドごとにブラインドとアンティが2倍になります。',
+    '持ち時間（オンライン）：1回の手番は45秒です。時間切れになると、チェックできるときは自動でチェック、それ以外は自動でフォールドします。',
+    '観戦：観戦者は、手札を見ることも、プレイヤーとして操作することもできません。ショーダウンで公開されたカードだけが見えます。',
+    'ホストの権限：ホストは設定の変更と、参加者の退場ができます。退場した人は、そのルームに戻れません。',
+  ] },
+];
+
+export function renderRulesPage(app: HTMLElement, sitePage: SitePage): void {
+  setMeta(`ポーカーのルール — ${SITE_NAME}`);
+  const shell = node('div', 'page-shell');
+  shell.append(siteHeader(sitePage));
+  const main = node('main', 'content rules');
+  main.append(contentIntro('HOW TO PLAY', 'ポーカーのルール', 'テキサスホールデムの流れと、このサービスで使うルールをまとめました。迷ったときはここに戻れます。'));
+  const toc = node('nav', 'legal-toc');
+  toc.setAttribute('aria-label', '目次');
+  toc.append(node('h2', 'legal-toc-title', '目次'));
+  const list = node('ol', 'legal-toc-list');
+  RULES.forEach((section, index) => {
+    const item = node('li');
+    const link = node('a', '', section.title.replace(/^\d+\.\s*/u, '')) as HTMLAnchorElement;
+    link.href = `#rule-${index + 1}`;
+    item.append(link);
+    list.append(item);
+  });
+  toc.append(list);
+  main.append(toc);
+  RULES.forEach((section, index) => {
+    const article = node('section', 'legal-section reveal');
+    article.id = `rule-${index + 1}`;
+    article.append(node('h2', 'legal-heading', section.title));
+    for (const paragraph of section.paragraphs) article.append(node('p', '', paragraph));
+    main.append(article);
+  });
+  const next = node('nav', 'content-bottom-nav');
+  next.append(pageLink('役の強さ一覧 →', '/hands'), pageLink('用語集を見る →', '/glossary'), pageLink('AI対戦で練習する →', '/ai'));
+  main.append(next);
+  shell.append(main, siteFooter());
+  app.replaceChildren(shell);
+}

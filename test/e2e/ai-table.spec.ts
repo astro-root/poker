@@ -4,10 +4,10 @@ import { VIEWPORTS, noHorizontalScroll, startAiTable, waitForYourTurn } from './
 test('AI setup: strength and opponent count are applied and remembered', async ({ page }) => {
   await startAiTable(page, 4, 7);
   await expect(page.locator('.seat-ai')).toHaveCount(7);
-  await expect(page.locator('.seat-tag').first()).toHaveText('最強');
+  await expect(page.locator('.seat-tag').first()).toHaveText('皇帝');
   await page.reload();
   await expect(page.locator('.count-option.is-selected')).toHaveText('7');
-  await expect(page.locator('.level-option.is-selected .level-name')).toHaveText('最強');
+  await expect(page.locator('.level-option.is-selected .level-name')).toHaveText('皇帝');
 });
 
 test('AI count can be any of 1 to 7', async ({ page }) => {

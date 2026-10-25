@@ -1,7 +1,7 @@
 import type { BettingAction } from '../poker/betting.ts';
 import {
   canApplyRoomUpdate, createRoom, joinRoom, leaveRoom, leaveRoomKeepalive, nextRoomHand, readRoom,
-  rematchRoom, renameInRoom, updateRoomSettings, startRoom as startServerRoom, submitRoomAction, type OnlineRoom,
+  rematchRoom, renameInRoom, updateRoomSettings, joinRoomByCode, kickFromRoom, sendRoomChat, startRoom as startServerRoom, submitRoomAction, type OnlineRoom,
 } from '../supabase/online-room.ts';
 import { shouldLeaveOnPageHide } from '../supabase/room-state.ts';
 import { hooks, savePlayerName, store } from './state.ts';
@@ -16,6 +16,19 @@ export function installLifecycleHandlers(): void {
   document.addEventListener('visibilitychange', () => {
     if (online.roomId) startOnlinePolling();
   });
+}
+
+const KICKED = /ホストにより.*退場/u;
+/** The host removed this player: drop the session locally (the server already refuses them) and say why. */
+function handleKicked(message: string): boolean {
+  if (!KICKED.test(message)) return false;
+  void closeOnlineSession().then(() => {
+    store.mode = 'online-lobby';
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    online.error = message;
+    hooks.render();
+  });
+  return true;
 }
 
 export async function closeOnlineSession(): Promise<void> {
@@ -35,8 +48,11 @@ export async function closeOnlineSession(): Promise<void> {
   online.peers = [];
   online.spectators = [];
   online.role = 'player';
-  online.settingsDraft = null;
   online.spectateOffer = '';
+  online.code = '';
+  online.chat = [];
+  online.chatSeen = 0;
+  queueMicrotask(() => hooks.chat());
   online.names.clear();
   window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
 }
@@ -47,15 +63,19 @@ export function applyOnlineRoom(room: OnlineRoom, expectedRoomId?: string): void
   online.roomId = room.roomId;
   online.revision = room.revision;
   online.host = room.hostId === store.humanId;
+  online.hostId = room.hostId;
   online.started = room.status === 'playing';
   online.winnerId = room.winnerId;
   online.finished = room.status === 'finished';
   online.peers = [...room.peers];
   online.role = room.role ?? 'player';
   online.spectators = [...(room.spectators ?? [])];
-  if (room.settingsVersion !== online.settingsVersion) online.settingsDraft = null;
   online.settings = room.settings ?? online.settings;
   online.settingsVersion = room.settingsVersion ?? 0;
+  online.code = room.code ?? '';
+  online.chat = [...(room.chat ?? [])];
+  if (online.chatOpen) online.chatSeen = online.chat.at(-1)?.id ?? 0;
+  queueMicrotask(() => hooks.chat());
   online.names = new Map([...room.peers, ...(room.spectators ?? [])].map((peer) => [peer.id, peer.name]));
   const mine = [...room.peers, ...(room.spectators ?? [])].find((peer) => peer.id === store.humanId);
   if (mine && mine.name !== store.playerName) savePlayerName(mine.name);
@@ -89,7 +109,9 @@ export async function refreshOnlineRoom(): Promise<void> {
     } else applyOnlineRoom(result, requested);
   } catch (error) {
     online.pollFailures++;
-    online.error = error instanceof Error ? error.message : 'ルーム状態を取得できませんでした。';
+    const message = error instanceof Error ? error.message : 'ルーム状態を取得できませんでした。';
+    if (handleKicked(message)) return;
+    online.error = message;
     hooks.render();
   } finally {
     online.polling = false;
@@ -111,11 +133,11 @@ export function startOnlinePolling(): void {
 
 const NOT_READY = 'オンライン対戦を利用できません。Supabase設定と匿名ログインを確認してください。';
 
-export async function createOnlineRoom(): Promise<void> {
+export async function createOnlineRoom(settings?: RoomSettings): Promise<void> {
   const epoch = online.sessionEpoch;
   try {
     if (!store.guestOnlineReady) throw new Error(NOT_READY);
-    const room = await createRoom(store.playerName);
+    const room = await createRoom(store.playerName, settings);
     if (epoch !== online.sessionEpoch) return;
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#room=${room.roomId}`);
     store.mode = 'online-lobby';
@@ -134,6 +156,7 @@ export async function joinOnlineRoom(roomId: string, spectate = false): Promise<
     if (!store.guestOnlineReady) throw new Error(NOT_READY);
     const room = await joinRoom(roomId, store.playerName, spectate);
     if (epoch !== online.sessionEpoch) return;
+    online.invite = '';
     store.mode = room.status === 'playing' ? 'online-playing' : 'online-lobby';
     applyOnlineRoom(room);
     startOnlinePolling();
@@ -161,7 +184,9 @@ function withPending<T>(work: () => Promise<T>, onError: string): void {
   online.pending = true;
   hooks.render();
   void work().catch((error: unknown) => {
-    online.error = error instanceof Error ? error.message : onError;
+    const message = error instanceof Error ? error.message : onError;
+    if (handleKicked(message)) return;
+    online.error = message;
     hooks.render();
     void refreshOnlineRoom();
   }).finally(() => { online.pending = false; hooks.render(); });
@@ -187,12 +212,59 @@ export function requestRematch(): void {
   withPending(() => rematchRoom(roomId).then((room) => applyOnlineRoom(room, roomId)), 'リマッチを開始できませんでした。');
 }
 
-export function saveRoomSettings(draft: RoomSettings): void {
+/** Resolves to an error message for the dialog to show, or null on success. */
+export async function saveRoomSettings(draft: RoomSettings): Promise<string | null> {
   const checked = parseSettings(draft);
-  if (!checked.ok) { online.error = checked.error; hooks.render(); return; }
+  if (!checked.ok) return checked.error;
   const roomId = online.roomId;
-  withPending(() => updateRoomSettings(roomId, checked.settings, online.settingsVersion).then((room) => applyOnlineRoom(room, roomId)), '設定を保存できませんでした。');
+  try {
+    const room = await updateRoomSettings(roomId, checked.settings, online.settingsVersion);
+    applyOnlineRoom(room, roomId);
+    return null;
+  } catch (error) {
+    void refreshOnlineRoom();
+    return error instanceof Error ? error.message : '設定を保存できませんでした。';
+  }
 }
+
+export function joinOnlineRoomByCode(raw: string): void {
+  const code = raw.trim().toUpperCase();
+  if (!/^[A-Z2-9]{6}$/u.test(code)) { online.error = 'ルームコードは6文字の英数字です。'; hooks.render(); return; }
+  const epoch = online.sessionEpoch;
+  if (online.pending) return;
+  online.pending = true; online.error = ''; hooks.render();
+  void (async () => {
+    try {
+      if (!store.guestOnlineReady) throw new Error(NOT_READY);
+      const room = await joinRoomByCode(code, store.playerName);
+      if (epoch !== online.sessionEpoch) return;
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#room=${room.roomId}`);
+      online.invite = '';
+      applyOnlineRoom(room, room.roomId);
+      startOnlinePolling();
+    } catch (error) {
+      online.error = error instanceof Error ? error.message : 'ルームに参加できませんでした。';
+      hooks.render();
+    } finally { online.pending = false; hooks.render(); }
+  })();
+}
+
+export function kickPlayer(targetId: string): void {
+  const roomId = online.roomId;
+  withPending(() => kickFromRoom(roomId, targetId).then((room) => applyOnlineRoom(room, roomId)), '退場させられませんでした。');
+}
+
+/** Chat is deliberately outside withPending so a message never blocks (or is blocked by) a poker action. */
+export function sendChat(kind: 'text' | 'emoji', text: string): void {
+  const roomId = online.roomId;
+  if (!roomId) return;
+  void sendRoomChat(roomId, kind, text).then((room) => applyOnlineRoom(room, roomId)).catch((error: unknown) => {
+    online.error = error instanceof Error ? error.message : 'メッセージを送れませんでした。';
+    hooks.render();
+  });
+}
+
+export function markChatSeen(): void { online.chatSeen = online.chat.at(-1)?.id ?? 0; }
 
 /** Changes only this user's own display name; the server decides uniqueness and validity. */
 export function renameSelf(raw: string): void {

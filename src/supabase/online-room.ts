@@ -15,6 +15,8 @@ export type OnlineRoom = Readonly<{
   version: number;
   peers: readonly RoomPeer[];
   /** `spectator` viewers can read the table but never act and never receive hole cards. */
+  code: string | null;
+  chat: readonly ChatMessage[];
   role: 'player' | 'spectator';
   spectators: readonly RoomPeer[];
   settings: RoomSettings;
@@ -33,7 +35,12 @@ async function request<T>(action: string, args: Record<string, unknown> = {}): P
   return data.room as T;
 }
 
-export const createRoom = (name: string): Promise<OnlineRoom> => request('create', { name });
+export type ChatMessage = Readonly<{ id: number; from: string; name: string; kind: 'text' | 'emoji'; text: string; at: number }>;
+export const CHAT_EMOJI = ['👍', '😂', '😮', '😭', '🔥', '👏', '🤔', '🍀', '😎', '💀'] as const;
+export const createRoom = (name: string, settings?: RoomSettings): Promise<OnlineRoom> => request('create', { name, ...(settings ? { settings } : {}) });
+export const joinRoomByCode = (code: string, name: string): Promise<OnlineRoom> => request('join', { code, name });
+export const kickFromRoom = (roomId: string, targetId: string): Promise<OnlineRoom> => request('kick', { roomId, targetId });
+export const sendRoomChat = (roomId: string, kind: 'text' | 'emoji', text: string): Promise<OnlineRoom> => request('chat', { roomId, kind, text });
 export const joinRoom = (roomId: string, name: string, spectate = false): Promise<OnlineRoom> => request('join', { roomId, name, ...(spectate ? { spectate: true } : {}) });
 export const updateRoomSettings = (roomId: string, settings: RoomSettings, expectedSettingsVersion: number): Promise<OnlineRoom> =>
   request('settings', { roomId, settings, expectedSettingsVersion });

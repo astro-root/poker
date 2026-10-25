@@ -27,6 +27,18 @@ export type HandPlayerView = Readonly<{
   holeCards: readonly [Card, Card] | null;
 }>;
 
+/** One public betting action, kept so every client can show who did what. Contains no private information. */
+export type HandActionRecord = Readonly<{
+  stage: HandStage;
+  playerId: string;
+  type: 'fold' | 'check' | 'call' | 'bet' | 'raise' | 'all-in';
+  /** Chips this action moved into the pot. */
+  amount: number;
+  /** The player's total bet on this street after the action. */
+  total: number;
+  allIn: boolean;
+}>;
+
 export type PublicHandView = Readonly<{
   stage: HandStage;
   buttonPlayerId: string;
@@ -39,6 +51,7 @@ export type PublicHandView = Readonly<{
   actorId: string | null;
   players: readonly HandPlayerView[];
   result: HandResult | null;
+  actions: readonly HandActionRecord[];
 }>;
 
 /** Server-only state. Never serialize this object directly to clients; it contains the undealt deck. */
@@ -54,6 +67,8 @@ export type PokerHand = Readonly<{
   deck: readonly Card[];
   bettingRound: BettingRound | null;
   result: HandResult | null;
+  /** Public log of this hand's betting actions (older stored hands may not have it). */
+  actionLog?: readonly HandActionRecord[];
 }>;
 
 function validateSeatInputs(players: readonly HandSeatInput[], buttonIndex: number, smallBlind: number, bigBlind: number, ante: number): void {
@@ -271,6 +286,7 @@ export function startHand(
     deck,
     bettingRound: null,
     result: null,
+    actionLog: [],
   };
   const firstActor = nextPlayerId(withBlindContributions, bigBlindId, (player) => !player.folded && player.stack > 0);
   if (firstActor && needsBettingAction(withBlindContributions, firstActor)) {
@@ -282,15 +298,29 @@ export function startHand(
 export function applyHandAction(hand: PokerHand, playerId: string, action: BettingAction): PokerHand {
   if (!hand.bettingRound || hand.stage === 'complete') throw new Error('This hand is not accepting actions');
   const bettingRound = applyBettingAction(hand.bettingRound, playerId, action);
-  const next = withRound(hand, bettingRound);
+  const next = logAction(withRound(hand, bettingRound), hand, playerId, action.type);
   return bettingRound.complete ? advance({ ...next, bettingRound: null }) : next;
+}
+
+/** Appends the public record of an action by comparing the player's chips before and after it. */
+function logAction(next: PokerHand, before: PokerHand, playerId: string, type: HandActionRecord['type']): PokerHand {
+  const was = before.players.find((player) => player.id === playerId);
+  const now = next.players.find((player) => player.id === playerId);
+  if (!was || !now) return next;
+  const record: HandActionRecord = {
+    stage: before.stage, playerId, type,
+    amount: now.totalContribution - was.totalContribution,
+    total: now.streetContribution,
+    allIn: type !== 'fold' && now.stack === 0,
+  };
+  return { ...next, actionLog: [...(before.actionLog ?? []), record] };
 }
 
 /** Folds a player who left the room, even if their seat was not the current actor. */
 export function foldHandPlayer(hand: PokerHand, playerId: string): PokerHand {
   if (!hand.bettingRound || hand.stage === 'complete') return hand;
   const bettingRound = foldBettingPlayer(hand.bettingRound, playerId);
-  const next = withRound(hand, bettingRound);
+  const next = logAction(withRound(hand, bettingRound), hand, playerId, 'fold');
   return bettingRound.complete ? advance({ ...next, bettingRound: null }) : next;
 }
 
@@ -320,5 +350,6 @@ export function getPublicHandView(hand: PokerHand, viewerId?: string): PublicHan
       holeCards: player.id === viewerId || (revealedHands && player.id in revealedHands) ? player.holeCards : null,
     })),
     result: hand.result,
+    actions: [...(hand.actionLog ?? [])],
   };
 }

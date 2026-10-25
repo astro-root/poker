@@ -6,7 +6,7 @@ import type { TableState } from '../poker/table.ts';
 import type { EquityEstimate } from '../poker/equity.ts';
 import { formatChips } from '../ui/dom.ts';
 import { cardLabel } from '../ui/components/card.ts';
-import type { RoomPeer } from '../supabase/online-room.ts';
+import type { ChatMessage, RoomPeer } from '../supabase/online-room.ts';
 import { DEFAULT_SETTINGS, type RoomSettings } from '../poker/settings.ts';
 
 export type AppMode = 'practice' | 'online-lobby' | 'online-playing';
@@ -94,10 +94,12 @@ export const store = {
   humanStackAtHandStart: START_STACK,
   coachOpen: false,
   raiseOpen: false,
+  /** All-in needs a second, explicit confirmation so it can never be triggered by a single stray tap or key press. */
+  allInArmed: false,
   raiseValue: 0,
   equityCache: new Map<string, EquityEstimate>(),
   online: {
-    roomId: '', revision: 0, pollFailures: 0, sessionEpoch: 0, host: false, started: false,
+    roomId: '', revision: 0, pollFailures: 0, sessionEpoch: 0, host: false, hostId: '', started: false,
     winnerId: null as string | null, status: '', error: '', peers: [] as RoomPeer[],
     names: new Map<string, string>(), pollTimer: undefined as number | undefined, pending: false,
     /** True while a poll request is on the wire; prevents overlapping polls. */
@@ -108,15 +110,20 @@ export const store = {
     spectators: [] as RoomPeer[],
     settings: DEFAULT_SETTINGS as RoomSettings,
     settingsVersion: 0,
-    /** Unsaved host edits; survives re-renders caused by polling. Null when the form matches the server. */
-    settingsDraft: null as RoomSettings | null,
+    code: '' as string,
+    chat: [] as ChatMessage[],
+    /** Highest chat id the player has seen; anything newer is shown as unread. */
+    chatSeen: 0,
+    chatOpen: false,
+    /** An invite id from the URL that has NOT been joined yet; the player confirms first. */
+    invite: '',
     /** Set when an invite hit a started game, so the lobby can offer to watch instead. */
     spectateOffer: '',
   },
 };
 
 /** Set by main.ts so controllers can ask for a repaint without importing the views (avoids import cycles). */
-export const hooks: { render: () => void; renderLobby: () => void } = { render: () => undefined, renderLobby: () => undefined };
+export const hooks: { render: () => void; renderLobby: () => void; chat: () => void } = { render: () => undefined, renderLobby: () => undefined, chat: () => undefined };
 
 export function savePlayerName(raw: string): void {
   store.playerName = cleanNameInput(raw, 'あなた');

@@ -29,7 +29,8 @@ const TERMS: LegalDoc = {
     { id: 'rooms', title: '第3条（表示名・ルーム・招待リンク）', body: [
       '表示名は、他の参加者に表示されます。個人を特定できる情報、他者を誹謗中傷する内容、公序良俗に反する名称は使用しないでください。表示名は自分自身の分のみ変更できます。',
       'ルームは、作成者（ホスト）が招待リンクを共有した相手が参加できます。招待リンクを知っている人は誰でもそのルームに参加または観戦できるため、共有先はホスト自身の責任で選んでください。',
-      'ルームの設定（初期スタック、ハンド数、ブラインド、アンティ）を変更できるのはホストのみで、ゲーム開始前に限られます。観戦者はゲームの操作を行えません。',
+      'ルームの設定（初期スタック、ハンド数、ブラインド、アンティなど）を変更できるのはホストのみです。対戦中の変更は次のハンドから反映され、初期スタックは開始後に変更できません。観戦者はゲームの操作を行えません。',
+      'ホストは、ルームの参加者や観戦者を退場させることができます。退場させられた人は、そのルームに戻れません。ルームには、短いルームコードが付与されます。コードや招待リンクを知っている人は参加できるため、共有先にご注意ください。',
       '一定期間操作のないルームは、予告なく削除されることがあります。',
     ] },
     { id: 'prohibited', title: '第4条（禁止行為）', body: [
@@ -37,7 +38,7 @@ const TERMS: LegalDoc = {
       '・本サービス、サーバー、ネットワークへの攻撃、過大な負荷を与える行為（自動化されたリクエストの大量送信を含みます）。',
       '・不具合や脆弱性を悪用する行為、認証・権限・レート制限などの仕組みを回避しようとする行為。',
       '・複数のゲストIDを使った不正な共謀、他の参加者の手札を知ろうとする行為など、ゲームの公平性を損なう行為。',
-      '・他のユーザーへの迷惑行為、嫌がらせ、なりすまし。',
+      '・チャットや表示名での迷惑行為、嫌がらせ、なりすまし、他のユーザーへの不快な内容の送信。',
       '・法令または公序良俗に反する行為、その他運営者が不適切と判断する行為。',
     ] },
     { id: 'measures', title: '第5条（利用制限・不正行為への対応）', body: [
@@ -60,9 +61,9 @@ const TERMS: LegalDoc = {
       `本サービスに関して紛争が生じた場合の管轄裁判所：${PENDING}`,
     ] },
     { id: 'contact', title: '第10条（運営者・お問い合わせ）', body: [
-      '運営者：astro-root（https://astro-root.com）',
-      `運営者の氏名または名称（正式なもの）：${PENDING}`,
-      `お問い合わせ先：${PENDING}`,
+      '運営者名：Root（astro-root）',
+      '親サイト：https://astro-root.com',
+      'お問い合わせ先：https://astro-root.com/contact',
     ] },
   ],
 };
@@ -77,7 +78,7 @@ const PRIVACY: LegalDoc = {
       'オンライン対戦を利用する場合、次の情報が取得・保存されます。',
       '・匿名のゲストID：ブラウザごとに自動的に作成される識別子です（Supabase Authの匿名ログイン機能を使用）。',
       '・表示名：ご自身が入力した名前です。',
-      '・ルームの状態：参加者と観戦者の一覧、ゲーム設定、配られたカード、チップ、各プレイヤーの操作、在席の最終確認時刻など、ゲームの進行に必要な情報です。',
+      '・ルームの状態：参加者と観戦者の一覧、ルームコード、ゲーム設定、配られたカード、チップ、各プレイヤーの操作の記録、在席の最終確認時刻、ホストが退場させた参加者のID、チャットのメッセージ（直近30件まで）など、ゲームの進行に必要な情報です。チャットは同じルームの参加者・観戦者に表示されます。',
       '・利用頻度の制限のための記録：ゲストID、操作の種類ごとの回数と時刻です。',
       'AI対戦のみを利用する場合、ゲームの進行は利用者のブラウザ内で処理されます。',
     ] },
@@ -129,12 +130,25 @@ const PRIVACY: LegalDoc = {
       '運営者は、必要に応じて本ポリシーを変更します。変更後の内容は、本ページに掲載した時点から効力を生じます。',
     ] },
     { id: 'contact', title: '12. 運営者・お問い合わせ', body: [
-      '運営者：astro-root（https://astro-root.com）',
-      `運営者の氏名または名称（正式なもの）：${PENDING}`,
-      `お問い合わせ先：${PENDING}`,
+      '運営者名：Root（astro-root）',
+      '親サイト：https://astro-root.com',
+      'お問い合わせ先：https://astro-root.com/contact',
     ] },
   ],
 };
+
+/** Plain text with any https:// address turned into a safe external link (built with DOM nodes, never innerHTML). */
+function paragraphNode(text: string): HTMLElement {
+  const p = node('p', text.includes(PENDING) ? 'legal-pending' : '');
+  for (const part of text.split(/(https:\/\/[^\s）)]+)/u)) {
+    if (/^https:\/\//u.test(part)) {
+      const link = node('a', 'legal-link', part) as HTMLAnchorElement;
+      link.href = part; link.target = '_blank'; link.rel = 'noopener noreferrer';
+      p.append(link);
+    } else if (part) p.append(document.createTextNode(part));
+  }
+  return p;
+}
 
 export function renderLegalPage(app: HTMLElement, page: Extract<SitePage, 'terms' | 'privacy'>): void {
   const doc = page === 'terms' ? TERMS : PRIVACY;
@@ -166,7 +180,7 @@ export function renderLegalPage(app: HTMLElement, page: Extract<SitePage, 'terms
     const article = node('section', 'legal-section');
     article.id = section.id;
     article.append(node('h2', 'legal-heading', section.title));
-    for (const paragraph of section.body) article.append(node('p', paragraph.includes(PENDING) ? 'legal-pending' : '', paragraph));
+    for (const paragraph of section.body) article.append(paragraphNode(paragraph));
     body.append(article);
   }
   main.append(body);

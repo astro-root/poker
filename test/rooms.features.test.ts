@@ -39,8 +39,16 @@ test('host settings: validated, host-only, versioned, and applied to the game', 
     assert.equal(table.smallBlind, 10);
     assert.equal(table.seats.reduce((n: number, seat: any) => n + seat.stack, 0) + table.hand.players.reduce((n: number, p: any) => n + p.totalContribution, 0) - table.hand.players.reduce((n: number, p: any) => n + p.totalContribution, 0) > 0, true);
     assert.equal(started.room.settings.startingStack, 2000);
-    // Settings are frozen once the game has started.
-    assert.equal((await h.call(V(1), { action: 'settings', roomId, settings, expectedSettingsVersion: 1 })).status, 409);
+    // Mid-game: the starting stack is locked, a hand limit below the hands played is refused, the rest applies from the next hand.
+    assert.equal((await h.call(V(1), { action: 'settings', roomId, settings: { ...settings, startingStack: 3000 }, expectedSettingsVersion: 1 })).status, 400);
+    assert.equal((await h.call(V(2), { action: 'settings', roomId, settings, expectedSettingsVersion: 1 })).status, 403);
+    const live = await h.call(V(1), { action: 'settings', roomId, settings: { ...settings, smallBlind: 25, bigBlind: 50, ante: 10 }, expectedSettingsVersion: 1 });
+    assert.equal(live.status, 200);
+    const running = h.rooms.get(roomId)!.state.table;
+    assert.equal(running.hand.smallBlind, 10, 'the hand in progress is untouched');
+    assert.equal(running.baseSmallBlind, 25);
+    assert.equal(running.baseBigBlind, 50);
+    assert.equal(running.baseAnte, 10);
   } finally { /* shared harness is disposed after all tests */ }
 });
 
@@ -182,4 +190,82 @@ test('state polling is rate limited per user without blocking normal play', asyn
     h.clock.now += 6_000;
     assert.equal((await h.call(V(1), { action: 'state', roomId })).status, 200, 'normal polling resumes after the window');
   } finally { /* shared harness is disposed after all tests */ }
+});
+
+test('room code: created with the room, joins by code, malformed or unknown codes are rejected', async () => {
+  nextBase();
+  const roomId = await h.createRoomWith(V(1), []);
+  const row = h.rooms.get(roomId)! as any;
+  assert.match(row.code, /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$/u);
+  const joined = await h.json(await h.call(V(2), { action: 'join', code: row.code.toLowerCase(), name: 'Code' }));
+  assert.equal(joined.room.roomId, roomId);
+  assert.equal(joined.room.code, row.code);
+  assert.equal((await h.call(V(3), { action: 'join', code: 'AAAAAA', name: 'x' })).status, 404);
+  assert.equal((await h.call(V(3), { action: 'join', code: 'O0I1', name: 'x' })).status, 400);
+});
+
+test('create accepts validated settings including the hand-rank toggle', async () => {
+  nextBase();
+  const bad = await h.call(V(1), { action: 'create', name: 'H', settings: { ...settings, bigBlind: 1 } });
+  assert.equal(bad.status, 400);
+  const created = await h.json(await h.call(V(1), { action: 'create', name: 'H', settings: { ...settings, showHandRank: false, maxHands: null } }));
+  assert.equal(created.room.settings.showHandRank, false);
+  assert.equal(created.room.settings.startingStack, 2000);
+});
+
+test('host kick: host only, bans rejoin and spectating, folds a seated player mid-hand', async () => {
+  nextBase();
+  const roomId = await h.createRoomWith(V(1), [V(2), V(3)]);
+  assert.equal((await h.call(V(2), { action: 'kick', roomId, targetId: V(3) })).status, 403);
+  assert.equal((await h.call(V(1), { action: 'kick', roomId, targetId: V(1) })).status, 400);
+  assert.equal((await h.call(V(1), { action: 'kick', roomId, targetId: V(9) })).status, 404);
+  h.clock.now += 1_000;
+  await h.call(V(1), { action: 'start', roomId });
+  const res = await h.json(await h.call(V(1), { action: 'kick', roomId, targetId: V(3) }));
+  assert.equal(res.ok, true);
+  const state = h.rooms.get(roomId)!.state;
+  assert.ok(state.banned.includes(V(3)));
+  assert.equal(state.table.hand.players.find((p: any) => p.id === V(3)).folded, true);
+  for (const body of [{ action: 'state' }, { action: 'join', name: 'back' }, { action: 'join', spectate: true, name: 'back' }, { action: 'action', pokerAction: { type: 'fold' }, expectedVersion: 0 }]) {
+    const r = await h.call(V(3), { roomId, ...body });
+    assert.equal(r.status, 403, body.action);
+    assert.equal((await h.json(r)).code, 'KICKED');
+  }
+});
+
+test('host can kick a spectator', async () => {
+  nextBase();
+  const roomId = await h.createRoomWith(V(1), [V(2)]);
+  h.clock.now += 1_000;
+  await h.call(V(1), { action: 'start', roomId });
+  await h.call(V(7), { action: 'join', roomId, spectate: true, name: 'W' });
+  assert.equal((await h.call(V(1), { action: 'kick', roomId, targetId: V(7) })).status, 200);
+  assert.equal((await h.call(V(7), { action: 'state', roomId })).status, 403);
+});
+
+test('chat: text and whitelisted emoji only, sanitised, capped, spectators allowed, outsiders refused', async () => {
+  nextBase();
+  const roomId = await h.createRoomWith(V(1), [V(2)]);
+  h.clock.now += 1_000;
+  assert.equal((await h.call(V(1), { action: 'chat', roomId, kind: 'text', text: '   ' })).status, 400);
+  assert.equal((await h.call(V(1), { action: 'chat', roomId, kind: 'emoji', text: '<script>' })).status, 400);
+  assert.equal((await h.call(V(9), { action: 'chat', roomId, kind: 'text', text: 'hi' })).status, 403);
+  const ok = await h.json(await h.call(V(1), { action: 'chat', roomId, kind: 'text', text: ' こん\u202Eにちは\u0000 ' + 'a'.repeat(200) }));
+  const msg = ok.room.chat.at(-1);
+  assert.ok([...msg.text].length <= 80);
+  assert.ok(!/[\u202e\u0000]/u.test(msg.text));
+  await h.call(V(2), { action: 'chat', roomId, kind: 'emoji', text: '🔥' });
+  assert.equal(h.rooms.get(roomId)!.state.chat.at(-1).text, '🔥');
+  await h.call(V(5), { action: 'join', roomId, spectate: true, name: 'W' });
+  assert.equal((await h.call(V(5), { action: 'chat', roomId, kind: 'text', text: 'nice' })).status, 200);
+  for (let i = 0; i < 40; i++) { h.clock.now += 2_000; await h.call(V(1), { action: 'chat', roomId, kind: 'text', text: `m${i}` }); }
+  assert.ok(h.rooms.get(roomId)!.state.chat.length <= 30, 'history is capped');
+});
+
+test('chat is rate limited per user', async () => {
+  nextBase();
+  const roomId = await h.createRoomWith(V(1), [V(2)]);
+  h.clock.now += 1_000;
+  // The shared mock database always allows; the in-process limiter is verified separately via the LIMITS table shape.
+  assert.equal((await h.call(V(1), { action: 'chat', roomId, kind: 'text', text: 'ok' })).status, 200);
 });

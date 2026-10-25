@@ -1,4 +1,4 @@
-import { applyTableAction, createTable, isGameOver, startNextHand, type TableState } from '../../../src/poker/table.ts';
+import { applyTableAction, createTable, isGameOver, startNextHand, updateTableSettings, type TableState } from '../../../src/poker/table.ts';
 import { getLegalActions, type BettingAction } from '../../../src/poker/betting.ts';
 import { foldHandPlayer } from '../../../src/poker/hand.ts';
 import { uniqueDisplayName, validateDisplayName } from '../../../src/poker/names.ts';
@@ -23,12 +23,37 @@ type RoomState = Readonly<{
   settings?: RoomSettings;
   /** Incremented on every settings change so a stale form cannot overwrite newer values. */
   settingsVersion?: number;
+  /** Users removed by the host. They cannot rejoin, spectate or read this room again. */
+  banned?: readonly string[];
+  chat?: readonly ChatMessage[];
   notice: string;
   table: RoomTableState | null;
   winnerId?: string;
 }>;
 type RoomStatus = 'waiting' | 'playing' | 'finished';
-type RoomRow = Readonly<{ id: string; host_user_id: string; status: RoomStatus; revision: number; state: RoomState }>;
+type RoomRow = Readonly<{ id: string; host_user_id: string; status: RoomStatus; revision: number; state: RoomState; code?: string | null }>;
+
+/** Short code for typing a room in by hand. Ambiguous characters (0/O, 1/I/L) are left out. */
+const ROOM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const ROOM_CODE_RE = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$/u;
+function newRoomCode(): string {
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  // 256 is not a multiple of 31; the tiny modulo bias is irrelevant for a rate-limited, non-secret lookup code.
+  return Array.from(bytes, (byte) => ROOM_CODE_ALPHABET[byte % ROOM_CODE_ALPHABET.length]).join('');
+}
+
+const CHAT_EMOJI = ['👍', '😂', '😮', '😭', '🔥', '👏', '🤔', '🍀', '😎', '💀'] as const;
+const MAX_CHAT_MESSAGES = 30;
+const MAX_CHAT_LENGTH = 80;
+type ChatMessage = Readonly<{ id: number; from: string; name: string; kind: 'text' | 'emoji'; text: string; at: number }>;
+
+/** Removes control and bidirectional-override characters, collapses whitespace, and limits length by code points. */
+function cleanChatText(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const text = value.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/gu, ' ').replace(/\s+/gu, ' ').trim();
+  return [...text].slice(0, MAX_CHAT_LENGTH).join('');
+}
 
 const TURN_TIMEOUT_MS = 45_000;
 const PRESENCE_TIMEOUT_MS = 15_000;
@@ -45,7 +70,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 export type RoomErrorCode =
   | 'STALE_VERSION' | 'REVISION_CONFLICT' | 'ROOM_FULL' | 'GAME_STARTED' | 'NOT_ENOUGH_PLAYERS'
-  | 'NOT_YOUR_TURN' | 'NOT_A_MEMBER' | 'NOT_HOST' | 'BAD_REQUEST' | 'ROOM_NOT_FOUND' | 'RATE_LIMITED' | 'UNAUTHORIZED' | 'SPECTATOR_FORBIDDEN' | 'STALE_SETTINGS' | 'BAD_SETTINGS';
+  | 'NOT_YOUR_TURN' | 'NOT_A_MEMBER' | 'NOT_HOST' | 'BAD_REQUEST' | 'ROOM_NOT_FOUND' | 'RATE_LIMITED' | 'UNAUTHORIZED' | 'SPECTATOR_FORBIDDEN' | 'STALE_SETTINGS' | 'BAD_SETTINGS' | 'KICKED';
 
 class RoomError extends Error {
   readonly status: number;
@@ -139,6 +164,8 @@ const LIMITS: Readonly<Record<string, Limit>> = {
   action: { bucket: 'game', limit: 10, windowMs: 1_000 },
   'next-hand': { bucket: 'game', limit: 10, windowMs: 1_000 },
   rematch: { bucket: 'rematch', limit: 5, windowMs: 10_000 },
+  kick: { bucket: 'kick', limit: 10, windowMs: 10_000 },
+  chat: { bucket: 'chat', limit: 8, windowMs: 10_000 },
 };
 /** State polling is the hottest path, so it is limited in memory (best effort, per instance) to avoid a database write per poll. */
 const STATE_LIMIT = { limit: 10, windowMs: 5_000 };
@@ -307,6 +334,8 @@ function publicRoom(row: RoomRow, viewerId: string, now: number) {
     winnerId: room.winnerId ?? null,
     version: row.state.table?.version ?? 0,
     peers: room.members.map((member) => ({ id: member.id, name: member.name, connected: isConnected(member, now) })),
+    code: row.code ?? null,
+    chat: room.chat ?? [],
     role: room.members.some((member) => member.id === viewerId) ? 'player' : 'spectator',
     spectators: (room.spectators ?? []).map((member) => ({ id: member.id, name: member.name, connected: isConnected(member, now) })),
     settings: settingsOrDefault(room.settings),
@@ -343,26 +372,49 @@ Deno.serve(async (request: Request) => {
       const bytes = new Uint8Array(18);
       crypto.getRandomValues(bytes);
       const id = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-      const state: RoomState = { members: [{ id: userId, name: cleanName(body.name), lastSeenAt: now }], notice: '招待リンクを共有して友だちを待っています。', table: null };
-      const rows = await supabaseRequest<RoomRow[]>(url, serviceKey, '/rest/v1/poker_rooms?select=*', {
-        method: 'POST', headers: { Prefer: 'return=representation' },
-        body: JSON.stringify({ id, host_user_id: userId, status: 'waiting', revision: 0, state }),
-      });
-      return response({ ok: true, room: publicRoom(rows[0], userId, now) });
+      let initialSettings: RoomSettings | undefined;
+      if (body.settings !== undefined) {
+        const parsed = parseSettings(body.settings);
+        if (!parsed.ok) return fail(400, parsed.error, 'BAD_SETTINGS');
+        initialSettings = parsed.settings;
+      }
+      const state: RoomState = { members: [{ id: userId, name: cleanName(body.name), lastSeenAt: now }], notice: '招待リンクを共有して友だちを待っています。', table: null,
+        ...(initialSettings ? { settings: initialSettings, settingsVersion: 1 } : {}) };
+      // The unique index on `code` is the real guard; retrying on a collision keeps creation reliable.
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const rows = await supabaseRequest<RoomRow[]>(url, serviceKey, '/rest/v1/poker_rooms?select=*', {
+            method: 'POST', headers: { Prefer: 'return=representation' },
+            body: JSON.stringify({ id, code: newRoomCode(), host_user_id: userId, status: 'waiting', revision: 0, state }),
+          });
+          return response({ ok: true, room: publicRoom(rows[0], userId, now) });
+        } catch (error) {
+          if (attempt >= 4 || !/duplicate|unique|23505/iu.test(error instanceof Error ? error.message : '')) throw error;
+        }
+      }
     }
 
-    const roomId = typeof body?.roomId === 'string' ? body.roomId : '';
-    if (!/^[a-f0-9]{36}$/u.test(roomId)) return fail(400, '招待リンクが正しくありません。', 'BAD_REQUEST');
-    const found = await getRoom(url, serviceKey, roomId);
-    if (!found) return fail(404, 'ルームが見つかりません。ホストに新しい招待リンクを頼んでください。', 'ROOM_NOT_FOUND');
+    let found: RoomRow | null;
+    if (action === 'join' && typeof body?.code === 'string') {
+      const code = body.code.trim().toUpperCase();
+      if (!ROOM_CODE_RE.test(code)) return fail(400, 'ルームコードは6文字の英数字です。', 'BAD_REQUEST');
+      const rows = await supabaseRequest<RoomRow[]>(url, serviceKey, `/rest/v1/poker_rooms?code=eq.${code}&select=*`);
+      found = rows[0] ?? null;
+    } else {
+      const roomId = typeof body?.roomId === 'string' ? body.roomId : '';
+      if (!/^[a-f0-9]{36}$/u.test(roomId)) return fail(400, '招待リンクが正しくありません。', 'BAD_REQUEST');
+      found = await getRoom(url, serviceKey, roomId);
+    }
+    if (!found) return fail(404, 'ルームが見つかりません。ホストに新しい招待リンクかコードを頼んでください。', 'ROOM_NOT_FOUND');
     let row = found as RoomRow;
 
+    if ((row.state.banned ?? []).includes(userId)) return fail(403, 'ホストによりこのルームから退場になりました。', 'KICKED');
     const isMember = row.state.members.some((member) => member.id === userId);
     const isSpectator = (row.state.spectators ?? []).some((member) => member.id === userId);
     const wantsToSpectate = action === 'join' && body.spectate === true && !isMember;
     // Spectators may only read state, rename themselves, rejoin, or leave. Everything else is a player action.
     if (action !== 'join' && !isMember) {
-      if (isSpectator && !['state', 'leave', 'rename'].includes(action)) return fail(403, '観戦中はこの操作はできません。', 'SPECTATOR_FORBIDDEN');
+      if (isSpectator && !['state', 'leave', 'rename', 'chat'].includes(action)) return fail(403, '観戦中はこの操作はできません。', 'SPECTATOR_FORBIDDEN');
       if (!isSpectator) return fail(403, 'このルームの参加者ではありません。', 'NOT_A_MEMBER');
     }
     if (action === 'join' && !isMember && !wantsToSpectate && row.status !== 'waiting') return fail(409, 'この対戦はすでに始まっています。観戦として参加できます。', 'GAME_STARTED');
@@ -428,6 +480,52 @@ Deno.serve(async (request: Request) => {
         ...(row.state.spectators ? { spectators: renamed(row.state.spectators) } : {}), notice: `${self.name}が名前を${name}に変更しました。` });
       if (!saved) return fail(409, 'ルームの状態が更新されました。もう一度お試しください。', 'REVISION_CONFLICT');
       return response({ ok: true, room: publicRoom(saved, userId, now) });
+    }
+
+    if (action === 'kick') {
+      if (row.host_user_id !== userId) return fail(403, '退場させられるのはホストだけです。', 'NOT_HOST');
+      const targetId = typeof body.targetId === 'string' ? body.targetId : '';
+      if (targetId === userId) return fail(400, '自分自身は退場させられません。', 'BAD_REQUEST');
+      const target = row.state.members.find((member) => member.id === targetId) ?? (row.state.spectators ?? []).find((member) => member.id === targetId);
+      if (!target) return fail(404, '対象の参加者が見つかりません。', 'BAD_REQUEST');
+      const banned = [...(row.state.banned ?? []), targetId].slice(-50);
+      const wasMember = row.state.members.some((member) => member.id === targetId);
+      let members = row.state.members;
+      let table = row.state.table;
+      if (wasMember) {
+        if (row.status === 'playing') {
+          // Mid-game the seat and chips stay (so the table stays consistent) but the player is folded and sat out for good.
+          members = members.map((member) => member.id === targetId ? { ...member, lastSeenAt: 0, sittingOut: true } : member);
+          if (table?.hand?.bettingRound) {
+            try { table = withTurnDeadline({ ...table, hand: foldHandPlayer(table.hand, targetId) }, now); } catch (error) { console.error('fold on kick failed', error); }
+          }
+        } else members = members.filter((member) => member.id !== targetId);
+      }
+      const spectators = (row.state.spectators ?? []).filter((member) => member.id !== targetId);
+      const finishedGame = finishIfNecessary({ ...row.state, members, spectators, table, banned }, row.status);
+      const state: RoomState = finishedGame.status === 'finished' ? finishedGame.state : { ...finishedGame.state, notice: `${target.name}がホストにより退場になりました。` };
+      const saved = await saveRoom(url, serviceKey, row, state, finishedGame.status);
+      if (!saved) return fail(409, 'ルームの状態が更新されました。もう一度お試しください。', 'REVISION_CONFLICT');
+      return response({ ok: true, room: publicRoom(saved, userId, now) });
+    }
+
+    if (action === 'chat') {
+      const kind = body.kind === 'emoji' ? 'emoji' : 'text';
+      const text = kind === 'emoji' ? (typeof body.text === 'string' ? body.text : '') : cleanChatText(body.text);
+      if (kind === 'emoji' && !(CHAT_EMOJI as readonly string[]).includes(text)) return fail(400, 'そのスタンプは使えません。', 'BAD_REQUEST');
+      if (!text) return fail(400, 'メッセージを入力してください。', 'BAD_REQUEST');
+      // A chat write must not make someone's poker action fail: on a revision race, re-read and retry a couple of times.
+      let current: RoomRow | null = row;
+      for (let attempt = 0; attempt < 3 && current; attempt++) {
+        const sender = [...current.state.members, ...(current.state.spectators ?? [])].find((member) => member.id === userId);
+        if (!sender) return fail(403, 'このルームの参加者ではありません。', 'NOT_A_MEMBER');
+        const chat = current.state.chat ?? [];
+        const message: ChatMessage = { id: (chat[chat.length - 1]?.id ?? 0) + 1, from: userId, name: sender.name, kind, text, at: now };
+        const saved = await saveRoom(url, serviceKey, current, { ...current.state, chat: [...chat, message].slice(-MAX_CHAT_MESSAGES) });
+        if (saved) return response({ ok: true, room: publicRoom(saved, userId, now) });
+        current = await getRoom(url, serviceKey, row.id);
+      }
+      return fail(409, '同時に操作がありました。もう一度お試しください。', 'REVISION_CONFLICT');
     }
 
     if (action === 'leave' && !isMember) {
@@ -510,14 +608,23 @@ Deno.serve(async (request: Request) => {
     let status = row.status;
     if (action === 'settings') {
       if (row.host_user_id !== userId) return fail(403, '設定を変更できるのはホストだけです。', 'NOT_HOST');
-      if (row.status !== 'waiting') return fail(409, '対戦開始後は設定を変更できません。', 'GAME_STARTED');
+      if (row.status !== 'waiting' && row.status !== 'playing') return fail(409, '終了した対戦の設定は変更できません。リマッチしてください。', 'GAME_STARTED');
       const parsed = parseSettings(body.settings);
       if (!parsed.ok) return fail(400, parsed.error, 'BAD_SETTINGS');
+      const previous = settingsOrDefault(row.state.settings);
+      // The starting stack only matters when the game begins, so it is locked once play has started.
+      if (row.status === 'playing' && parsed.settings.startingStack !== previous.startingStack) return fail(400, '初期スタックは対戦開始後には変更できません。', 'BAD_SETTINGS');
+      if (row.status === 'playing' && parsed.settings.maxHands !== null && row.state.table && parsed.settings.maxHands < row.state.table.handNumber) {
+        return fail(400, `ハンド数は、すでにプレイしたハンド数（${row.state.table.handNumber}）以上にしてください。`, 'BAD_SETTINGS');
+      }
       const currentVersion = row.state.settingsVersion ?? 0;
       if (!Number.isSafeInteger(body.expectedSettingsVersion) || body.expectedSettingsVersion !== currentVersion) {
         return fail(409, '設定が他の操作で更新されました。最新の設定を確認してください。', 'STALE_SETTINGS');
       }
-      nextState = { ...row.state, settings: parsed.settings, settingsVersion: currentVersion + 1, notice: 'ホストが設定を変更しました。' };
+      const applied = row.status === 'playing' && row.state.table
+        ? updateTableSettings(row.state.table, parsed.settings) : row.state.table;
+      nextState = { ...row.state, table: applied, settings: parsed.settings, settingsVersion: currentVersion + 1,
+        notice: row.status === 'playing' ? 'ホストが設定を変更しました。次のハンドから反映されます。' : 'ホストが設定を変更しました。' };
     } else if (action === 'start') {
       if (row.host_user_id !== userId) return fail(403, '対戦を開始できるのはホストです。', 'NOT_HOST');
       if (row.status !== 'waiting') return fail(409, '2人以上が参加してから開始してください。', 'GAME_STARTED');
@@ -561,7 +668,7 @@ Deno.serve(async (request: Request) => {
       if (!requester || !isConnected(requester, now)) return fail(403, '在席中のプレイヤーのみリマッチできます。', 'NOT_A_MEMBER');
       nextState = {
         ...row.state,
-        members: row.state.members.map((member) => ({ ...member, sittingOut: false })),
+        members: row.state.members.filter((member) => !(row.state.banned ?? []).includes(member.id)).map((member) => ({ ...member, sittingOut: false })),
         table: null,
         winnerId: undefined,
         notice: 'リマッチできます。参加者がそろったら対戦を開始してください。',

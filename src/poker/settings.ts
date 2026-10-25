@@ -11,6 +11,8 @@ export type RoomSettings = Readonly<{
   maxHands: number | null;
   /** When true, blinds and ante double every 10 hands (the original behaviour). */
   escalateBlinds: boolean;
+  /** Whether players are shown the name of their own current hand during play. */
+  showHandRank: boolean;
 }>;
 
 export const STACK_PRESETS = [500, 1_000, 2_000, 5_000, 10_000] as const;
@@ -20,7 +22,7 @@ export const SETTINGS_LIMITS = Object.freeze({
 });
 
 export const DEFAULT_SETTINGS: RoomSettings = Object.freeze({
-  startingStack: 1_000, smallBlind: 5, bigBlind: 10, ante: 0, maxHands: null, escalateBlinds: true,
+  startingStack: 1_000, smallBlind: 5, bigBlind: 10, ante: 0, maxHands: null, escalateBlinds: true, showHandRank: true,
 });
 
 export type SettingsCheck = Readonly<{ ok: true; settings: RoomSettings } | { ok: false; error: string }>;
@@ -47,7 +49,10 @@ export function parseSettings(value: unknown): SettingsCheck {
     return { ok: false, error: `ハンド数は1〜${SETTINGS_LIMITS.maxHands}、または無制限で指定してください。` };
   }
   if (typeof escalateBlinds !== 'boolean') return { ok: false, error: 'ブラインド上昇の指定が正しくありません。' };
-  return { ok: true, settings: { startingStack, smallBlind, bigBlind, ante, maxHands: maxHands as number | null, escalateBlinds } };
+  // Optional so requests from older clients keep working; anything that is present must be a boolean.
+  const showHandRank = raw.showHandRank === undefined ? true : raw.showHandRank;
+  if (typeof showHandRank !== 'boolean') return { ok: false, error: '役の表示設定が正しくありません。' };
+  return { ok: true, settings: { startingStack, smallBlind, bigBlind, ante, maxHands: maxHands as number | null, escalateBlinds, showHandRank } };
 }
 
 /** Rooms created before settings existed fall back to the original defaults. */

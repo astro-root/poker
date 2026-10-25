@@ -42,6 +42,7 @@ export function performAction(action: BettingAction): void {
   const table = store.table;
   if (!table?.hand || table.hand.stage === 'complete' || store.aiThinking) return;
   store.raiseOpen = false;
+  store.allInArmed = false;
   if (store.mode === 'online-playing') { submitOnlineAction(action); return; }
   try {
     const stage = stageLabel(table.hand.stage);
