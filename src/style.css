@@ -687,7 +687,6 @@ dialog.modal[open]::backdrop { animation: fade-in .2s ease both; }
 @keyframes toast-out { to { opacity: 0; transform: translateY(-6px); } }
 
 /* ── Page-wide motion ──────────────────────────── */
-@view-transition { navigation: auto; }
 .js-reveal .reveal { opacity: 0; transform: translateY(14px); transition: opacity .5s ease, transform .5s cubic-bezier(.2, .8, .2, 1); }
 .js-reveal .reveal.is-visible { opacity: 1; transform: none; }
 .is-booting .content-intro > * { animation: rise-in .5s ease-out both; }
@@ -735,7 +734,6 @@ a.mode-row:hover { transform: translateY(-3px); border-color: var(--gold); box-s
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
   .js-reveal .reveal { opacity: 1; transform: none; }
-  @view-transition { navigation: none; }
 }
 @media (forced-colors: active) {
   .button, .action-button, .seat, .playing-card { border: 1px solid CanvasText; }
