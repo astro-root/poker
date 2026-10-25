@@ -22,6 +22,17 @@ BRANCH="${BRANCH:-feature/colosseum-update-2}"
 ZIP="${ZIP:-poker-main-updated.zip}"
 PATCH_FILE="poker-colosseum-changes-2.patch"
 DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
+ORIG_ZIP_NAME="$ZIP"
+
+# このスクリプトと ZIP は、リポジトリ内にあると git pull / switch とぶつかる（追跡済みで、上書き保存されているため）。
+# 先に一時フォルダへコピーし、そこから実行し直す。
+if [ -z "${APPLY_REEXEC:-}" ]; then
+  [ -f "$ZIP" ] || { printf '\n\033[1;31m✖ %s が見つかりません（リポジトリのルートで実行してください）。\033[0m\n' "$ZIP" >&2; exit 1; }
+  WORK_COPY="$(mktemp -d)"
+  cp -- "$0" "$WORK_COPY/self.sh"; cp -- "$ZIP" "$WORK_COPY/update.zip"
+  export APPLY_REEXEC=1 ORIG_ZIP_NAME="$ZIP" ZIP="$WORK_COPY/update.zip"
+  exec bash "$WORK_COPY/self.sh" "$@"
+fi
 # アップロードした2ファイルは配布物なので、コミット対象にしない
 # 配布物のファイル名パターン。GitHub のWebからアップロードされて main に混入していることがある
 CLUTTER_GLOBS=('poker-main-updated*.zip' 'poker-colosseum-changes*.patch' 'apply-colosseum-update*.sh' 'apply-update.sh' 'poker-colosseum-update.zip')
@@ -80,24 +91,45 @@ unzip -q "$ZIP" -d "$TMP"
 SRC="$TMP/poker-main"
 [ -d "$SRC" ] && [ -f "$SRC/package.json" ] || fail "ZIP の構成が想定と異なります（poker-main/ が見つかりません）。"
 
-say "ZIP と現在の作業ツリーの差分"
-NEW=0; CHG=0
-while IFS= read -r -d '' f; do
-  rel="${f#"$SRC"/}"
-  if [ ! -e "$rel" ]; then NEW=$((NEW+1)); echo "  + $rel"
-  elif ! cmp -s "$f" "$rel"; then CHG=$((CHG+1)); echo "  ~ $rel"; fi
-done < <(find "$SRC" -type f -print0)
-echo "  新規 $NEW / 変更 $CHG / 削除予定: ${OBSOLETE[*]}"
-if [ "$DRY" = "1" ]; then echo; echo "(dry-run: git の状態もファイルも変更していません)"; exit 0; fi
+# REF（例: origin/main）の内容と ZIP を比べる。ローカルの作業ツリーは古い/途中の状態のことがあるため基準にしない。
+compare_with_ref() {
+  local ref="$1" f rel; NEW=0; CHG=0
+  while IFS= read -r -d '' f; do
+    rel="${f#"$SRC"/}"
+    if ! git cat-file -e "$ref:$rel" 2>/dev/null; then NEW=$((NEW+1)); echo "  + $rel"
+    elif ! git show "$ref:$rel" 2>/dev/null | cmp -s - "$f"; then CHG=$((CHG+1)); echo "  ~ $rel"; fi
+  done < <(find "$SRC" -type f -print0)
+  echo "  新規 $NEW / 変更 $CHG / 削除予定: ${OBSOLETE[*]}"
+}
+
+say "リモートの状態を取得"
+git fetch origin "$BASE" || fail "git fetch に失敗しました（ネットワーク・認証を確認）。"
+BEHIND="$(git rev-list --count "HEAD..origin/$BASE" 2>/dev/null || echo '?')"
+AHEAD="$(git rev-list --count "origin/$BASE..HEAD" 2>/dev/null || echo '?')"
+echo "  ローカルの $(git rev-parse --abbrev-ref HEAD): origin/$BASE より $AHEAD コミット先行 / $BEHIND コミット遅れ"
+[ "$BEHIND" = "0" ] || { echo "  origin/$BASE の新しいコミット:"; git --no-pager log --oneline "HEAD..origin/$BASE" | head -12 | sed 's/^/    /'; }
+
+say "ZIP と origin/$BASE の差分（実行すると、ここに出るファイルが ZIP の内容になります）"
+compare_with_ref "origin/$BASE"
+if [ "$DRY" = "1" ]; then
+  echo; echo "(dry-run: 作業ツリーもブランチも変更していません)"
+  echo "  差分が「変更 0 / 新規 0」なら、ZIP の内容はすでに origin/$BASE に入っています。"
+  exit 0
+fi
 
 # ── 1. 作業ツリーの確認と git pull ───────────────────────────
 say "1. 作業ツリーの確認と $BASE の更新"
 DIRTY=""
 while IFS= read -r -d '' p; do is_dist_name "$p" || DIRTY+="$p"$'\n'; done < <(changed_paths)
 if [ -n "$DIRTY" ]; then printf '%s' "$DIRTY" | sed 's/^/  /'; fail "未コミットの変更があります。コミットまたは退避（git stash）してから再実行してください。上書きはしません。"; fi
-git fetch origin
+# 上書き保存した配布物（スクリプト・ZIP・パッチ）が git の追跡対象だと pull が止まるので、リポジトリ側の版に戻す。
+# 一時フォルダにコピー済みなので、この実行には影響しない。
+while IFS= read -r -d '' p; do
+  if is_dist_name "$p"; then git checkout -- "$p" && ok "元に戻しました（配布物）: $p"; fi
+done < <(git diff --name-only -z)
 git switch "$BASE"
-git pull --ff-only origin "$BASE"
+PRE_PULL="$(git rev-parse HEAD)"
+git pull --ff-only origin "$BASE" || fail "git pull --ff-only に失敗しました。ローカルの $BASE が origin/$BASE と分岐している可能性があります。git log --oneline --graph で確認してください（強制はしません）。"
 ok "$BASE を最新にしました: $(git rev-parse --short HEAD)"
 
 # ── 2. 作業ブランチ ────────────────────────────────────────
@@ -106,9 +138,27 @@ git show-ref --verify --quiet "refs/heads/$BRANCH" && fail "ブランチ $BRANCH
 git switch -c "$BRANCH"
 
 # ── 3. ZIP を展開（上書き） ─────────────────────────────────
-say "3. ZIP の内容を反映（$CHG 件を上書き、$NEW 件を追加）"
+say "3. ZIP の内容を反映（pull 後の $BASE との差分を再計算）"
+compare_with_ref HEAD
+[ "$NEW" -gt 0 ] || [ "$CHG" -gt 0 ] || fail "ZIP の内容はすでに $BASE に入っています。反映するものがありません。"
 confirm "ZIP の内容でファイルを上書きします。よろしいですか？"
-cp -a "$SRC"/. "$TOP"/
+# ZIP は全ファイルのスナップショットなので、そのまま上書きすると、リモートで後から入った変更を古い内容で消してしまう。
+# pull で今回取り込まれたファイルは上書きせず、一覧を出して手動での統合に回す。
+mapfile -d '' -t UPSTREAM < <(git diff --name-only -z "$PRE_PULL" HEAD)
+is_upstream() { local u; for u in "${UPSTREAM[@]}"; do [ "$u" = "$1" ] && return 0; done; return 1; }
+SKIPPED=()
+while IFS= read -r -d '' f; do
+  rel="${f#"$SRC"/}"
+  if [ -e "$rel" ] && cmp -s "$f" "$rel"; then continue; fi
+  if is_upstream "$rel" && git cat-file -e "HEAD:$rel" 2>/dev/null; then SKIPPED+=("$rel"); continue; fi
+  mkdir -p "$(dirname "$rel")"; cp -p -- "$f" "$rel"
+done < <(find "$SRC" -type f -print0)
+if [ "${#SKIPPED[@]}" -gt 0 ]; then
+  printf '\n\033[1;33m⚠ リモートで更新されていたため、ZIP では上書きしなかったファイル（%s 件）:\033[0m\n' "${#SKIPPED[@]}"
+  printf '    %s\n' "${SKIPPED[@]}"
+  echo "  これらは origin/$BASE 側の内容のままです。ZIP の内容が必要なら、差分を見て手動で統合してください:"
+  echo "    unzip -p $ORIG_ZIP_NAME poker-main/<ファイル> | diff - <ファイル>"
+fi
 for f in "${OBSOLETE[@]}"; do
   if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then git rm -q -f "$f"; ok "削除: $f"
   elif [ -e "$f" ]; then rm -f "$f"; ok "削除: $f"; fi
