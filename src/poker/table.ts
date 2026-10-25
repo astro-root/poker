@@ -14,6 +14,8 @@ export type TableState = Readonly<{
   maxHands: number | null;
   /** Whether blinds and ante double every 10 hands. */
   escalateBlinds: boolean;
+  /** Hand number from which blind escalation is counted (moves forward when settings change mid-game). */
+  levelOrigin: number;
   buttonPlayerId: string | null;
   handNumber: number;
   version: number;
@@ -54,6 +56,7 @@ export function createTable(seats: readonly TableSeat[], smallBlind: number, big
     baseAnte: ante,
     maxHands,
     escalateBlinds: options.escalateBlinds ?? true,
+    levelOrigin: 1,
     buttonPlayerId: null,
     handNumber: 0,
     version: 0,
@@ -98,7 +101,7 @@ export function startNextHand(table: TableState, sittingOut: SittingOut = []): T
   const buttonPlayerId = nextFundedButton(seats, table.buttonPlayerId, away);
   const buttonIndex = participants.findIndex((seat) => seat.id === buttonPlayerId);
   const nextHandNumber = table.handNumber + 1;
-  const level = table.escalateBlinds === false ? 0 : Math.min(MAX_BLIND_LEVEL, Math.floor((nextHandNumber - 1) / 10));
+  const level = table.escalateBlinds === false ? 0 : Math.min(MAX_BLIND_LEVEL, Math.floor((nextHandNumber - (table.levelOrigin ?? 1)) / 10));
   const smallBlind = table.baseSmallBlind * 2 ** level;
   const bigBlind = table.baseBigBlind * 2 ** level;
   const ante = (table.baseAnte ?? 0) * 2 ** level;
@@ -134,6 +137,20 @@ export function applyTableAction(
     seats: synchronizeStacks(table, hand),
     hand,
     version: table.version + 1,
+  };
+}
+
+/**
+ * Applies host setting changes made after the game started. They never touch the hand in progress:
+ * the new blinds, ante, hand limit and escalation take effect from the next hand, and blind escalation
+ * restarts from that hand so the new values are exactly what the next hand uses.
+ */
+export function updateTableSettings(table: TableState, next: Readonly<{ smallBlind: number; bigBlind: number; ante: number; maxHands: number | null; escalateBlinds: boolean }>): TableState {
+  if (next.maxHands !== null && next.maxHands < table.handNumber) throw new RangeError('The hand limit cannot be lower than the hands already played');
+  return {
+    ...table,
+    baseSmallBlind: next.smallBlind, baseBigBlind: next.bigBlind, baseAnte: next.ante,
+    maxHands: next.maxHands, escalateBlinds: next.escalateBlinds, levelOrigin: table.handNumber + 1,
   };
 }
 

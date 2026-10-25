@@ -1,6 +1,6 @@
 import { node } from './dom.ts';
 
-export type SitePage = 'home' | 'ai' | 'online' | 'glossary' | 'hands' | 'terms' | 'privacy';
+export type SitePage = 'home' | 'ai' | 'online' | 'glossary' | 'hands' | 'terms' | 'privacy' | 'rules';
 export const SITE_NAME = 'Poker Colosseum';
 /** Browser title and SEO/share metadata. The logo and headings use SITE_NAME alone. */
 export const SITE_TITLE = 'Poker Colosseum — Online Texas Hold’em';
@@ -49,38 +49,81 @@ export function brandLink(): HTMLAnchorElement {
   return brand;
 }
 
+/** Remembered across the full re-renders that the game views perform, so an open menu does not snap shut. */
+let menuOpen = false;
+
 export function siteHeader(page: SitePage): HTMLElement {
   const header = node('header', 'site-header');
   const inner = node('div', 'site-header-inner');
   const nav = node('nav', 'page-nav');
+  nav.id = 'main-nav';
   nav.setAttribute('aria-label', 'メインナビゲーション');
   nav.append(
     pageLink('ホーム', '/', page === 'home'),
     pageLink('AI対戦', '/ai', page === 'ai'),
     pageLink('オンライン', '/online', page === 'online'),
-    pageLink('用語集', '/glossary', page === 'glossary'),
+    pageLink('ルール', '/rules', page === 'rules'),
     pageLink('役一覧', '/hands', page === 'hands'),
+    pageLink('用語集', '/glossary', page === 'glossary'),
   );
-  inner.append(brandLink(), nav);
+  const toggle = node('button', 'nav-toggle');
+  toggle.type = 'button';
+  toggle.setAttribute('aria-controls', 'main-nav');
+  toggle.setAttribute('aria-label', 'メニュー');
+  const bars = node('span', 'nav-toggle-bars');
+  toggle.append(bars);
+  const sync = (): void => {
+    header.classList.toggle('is-menu-open', menuOpen);
+    toggle.setAttribute('aria-expanded', String(menuOpen));
+  };
+  toggle.addEventListener('click', () => { menuOpen = !menuOpen; sync(); });
+  // Choosing a link or pressing Escape closes the menu again.
+  nav.addEventListener('click', (event) => { if ((event.target as HTMLElement).closest('a')) { menuOpen = false; sync(); } });
+  header.addEventListener('keydown', (event) => { if (event.key === 'Escape' && menuOpen) { menuOpen = false; sync(); toggle.focus(); } });
+  sync();
+  inner.append(brandLink(), toggle, nav);
   header.append(inner);
   return header;
+}
+
+function externalLink(label: string, href: string): HTMLAnchorElement {
+  const link = node('a', 'footer-link', label) as HTMLAnchorElement;
+  link.href = href;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.setAttribute('aria-label', `${label}（新しいタブで開きます）`);
+  return link;
+}
+
+function footerLink(label: string, href: string): HTMLAnchorElement {
+  const link = node('a', 'footer-link', label) as HTMLAnchorElement;
+  link.href = href;
+  return link;
 }
 
 export function siteFooter(): HTMLElement {
   const footer = node('footer', 'site-footer');
   const inner = node('div', 'site-footer-inner');
-  const left = node('div', 'footer-brand');
-  left.append(logoMark(22), node('span', '', SITE_NAME));
-  const nav = node('nav', 'footer-links');
-  nav.setAttribute('aria-label', 'フッター');
-  nav.append(pageLink('利用規約', '/terms'), pageLink('プライバシーポリシー', '/privacy'));
-  const parent = node('a', 'page-nav-link', 'astro-root') as HTMLAnchorElement;
-  parent.href = PARENT_SITE_URL;
-  parent.target = '_blank';
-  parent.rel = 'noopener noreferrer';
-  parent.setAttribute('aria-label', 'astro-root（親サイト・新しいタブで開きます）');
-  nav.append(parent);
-  inner.append(left, nav, node('p', 'footer-note', '©2026 astro-root'));
-  footer.append(inner);
+  const brand = node('div', 'footer-brand-block');
+  const mark = node('div', 'footer-brand');
+  mark.append(logoMark(26), node('span', '', SITE_NAME));
+  brand.append(mark, node('p', 'footer-tagline', SITE_TAGLINE), node('p', 'footer-small', 'バーチャルチップだけで遊ぶテキサスホールデム。実際の金銭は使いません。'));
+  const columns = node('div', 'footer-columns');
+  const column = (title: string, links: HTMLElement[]): HTMLElement => {
+    const nav = node('nav', 'footer-col');
+    nav.setAttribute('aria-label', title);
+    nav.append(node('h2', 'footer-col-title', title), ...links);
+    return nav;
+  };
+  columns.append(
+    column('遊ぶ', [footerLink('AI対戦', '/ai'), footerLink('友だちとオンライン', '/online')]),
+    column('学ぶ', [footerLink('ポーカーのルール', '/rules'), footerLink('役の強さ一覧', '/hands'), footerLink('用語集', '/glossary')]),
+    column('規約', [footerLink('利用規約', '/terms'), footerLink('プライバシーポリシー', '/privacy')]),
+    column('運営', [externalLink('astro-root', PARENT_SITE_URL), externalLink('お問い合わせ', `${PARENT_SITE_URL}/contact`)]),
+  );
+  inner.append(brand, columns);
+  const bottom = node('div', 'footer-bottom');
+  bottom.append(node('p', 'footer-note', '©2026 astro-root'));
+  footer.append(inner, bottom);
   return footer;
 }

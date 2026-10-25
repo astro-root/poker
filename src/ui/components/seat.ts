@@ -17,6 +17,8 @@ export type SeatProps = Readonly<{
   holeCards: readonly [Card, Card] | null;
   showCards: boolean;
   winner?: boolean;
+  /** Short description of this player's latest action in the current hand, e.g. "コール 50". */
+  lastAction?: string;
 }>;
 
 function initial(name: string): string {
@@ -66,6 +68,7 @@ export function renderSeat(props: SeatProps): HTMLElement {
   seat.append(mid);
 
   const status = node('div', 'seat-status');
+  if (props.lastAction && !props.folded) status.append(node('span', 'seat-last', props.lastAction));
   if (props.bet > 0) status.append(node('span', 'seat-bet', `ベット ${formatChips(props.bet)}`));
   const label = props.winner ? '勝利' : props.folded ? 'フォールド' : props.away ? '離席中' : props.allIn ? 'オールイン' : props.active ? '考え中' : '';
   if (label) status.append(node('span', `seat-state${props.active && !props.folded ? ' state-active' : ''}${props.winner ? ' state-winner' : ''}`, props.active && props.kind === 'you' ? 'あなたの番' : label));

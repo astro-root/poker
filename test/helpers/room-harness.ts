@@ -27,12 +27,15 @@ export async function createHarness() {
     const id = url.searchParams.get('id')?.replace(/^eq\./u, '');
     if (method === 'POST') {
       const row = JSON.parse(String(init.body)) as StoredRoom;
+      if ((row as { code?: string }).code && [...rooms.values()].some((other) => (other as { code?: string }).code === (row as { code?: string }).code)) return reply({ message: 'duplicate key value violates unique constraint (23505)' }, 409);
       row.updated_at = new Date(clock.now).toISOString();
       rooms.set(row.id, row);
       return reply([row], 201);
     }
     if (method === 'GET') {
       if (id) return reply(rooms.has(id) ? [rooms.get(id)] : []);
+      const code = url.searchParams.get('code')?.replace(/^eq\./u, '');
+      if (code) return reply([...rooms.values()].filter((row) => (row as { code?: string }).code === code));
       const hostId = url.searchParams.get('host_user_id')?.replace(/^eq\./u, '');
       return reply([...rooms.values()].filter((row) => (!hostId || row.host_user_id === hostId) && row.status !== 'finished').map((row) => ({ id: row.id })));
     }

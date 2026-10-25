@@ -9,7 +9,7 @@ export type AiStyle = 'aggressive' | 'balanced' | 'cautious';
 export type AiLevel = 'weak' | 'medium' | 'strong' | 'strongest';
 export const AI_LEVELS = ['weak', 'medium', 'strong', 'strongest'] as const satisfies readonly AiLevel[];
 export const AI_LEVEL_LABELS: Readonly<Record<AiLevel, string>> = {
-  weak: '弱い', medium: '中くらい', strong: '強い', strongest: '最強',
+  weak: '新兵', medium: '剣闘士', strong: '百人隊長', strongest: '皇帝',
 };
 export const AI_LEVEL_DESCRIPTIONS: Readonly<Record<AiLevel, string>> = {
   weak: '初心者向け。判断にムラがあり、降りるべき場面でも付き合いがち。',

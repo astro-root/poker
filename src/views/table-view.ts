@@ -14,6 +14,8 @@ import {
 import { coachAdvice, currentEquity, formatPercent } from '../app/coach.ts';
 import { backToSetup, continueToNextHand, performAction } from '../app/practice.ts';
 import { closeOnlineSession, renameSelf, requestNextOnlineHand, requestRematch } from '../app/online.ts';
+import type { HandActionRecord } from '../poker/hand.ts';
+import { openHostSettings } from './lobby-view.ts';
 
 const online = store.online;
 
@@ -34,6 +36,20 @@ function details(summary: string, className: string, open = false): HTMLDetailsE
   element.open = open;
   element.append(node('summary', '', summary));
   return element;
+}
+
+/** Whether the player may see the name of their own current hand (a host option online; always on in practice). */
+function rankVisible(): boolean { return store.mode !== 'online-playing' || online.settings.showHandRank; }
+
+export function describeAction(record: HandActionRecord): string {
+  switch (record.type) {
+    case 'fold': return 'フォールド';
+    case 'check': return 'チェック';
+    case 'call': return record.allIn ? `コール ${formatChips(record.amount)}（オールイン）` : `コール ${formatChips(record.amount)}`;
+    case 'bet': return record.allIn ? `ベット ${formatChips(record.total)}（オールイン）` : `ベット ${formatChips(record.total)}`;
+    case 'raise': return record.allIn ? `レイズ ${formatChips(record.total)}（オールイン）` : `レイズ ${formatChips(record.total)}`;
+    default: return `オールイン ${formatChips(record.total)}`;
+  }
 }
 
 /** Remembers how many community cards the previous render showed (animation only; never game state). */
@@ -90,7 +106,14 @@ export function renderPlayView(app: HTMLElement): void {
       const next = window.prompt('新しい表示名（20文字以内）', store.playerName);
       if (next !== null) renameSelf(next);
     });
-    controls.append(info, rename, leave);
+    controls.append(info, rename);
+    if (online.host) {
+      const settings = node('button', 'button button-ghost button-small', '設定');
+      settings.type = 'button';
+      settings.addEventListener('click', openHostSettings);
+      controls.append(settings);
+    }
+    controls.append(leave);
   } else {
     const setup = node('button', 'button button-ghost button-small', '設定を変更');
     setup.type = 'button';
@@ -113,6 +136,8 @@ export function renderPlayView(app: HTMLElement): void {
   const seats = node('div', 'seats');
   const n = opponentIds.length;
   seats.style.setProperty('--cols', String(n <= 3 ? Math.max(1, n) : n === 4 ? 2 : n <= 6 ? 3 : 4));
+  const actionLog = hand.actionLog ?? [];
+  const lastActionOf = (id: string): string | undefined => { for (let i = actionLog.length - 1; i >= 0; i--) if (actionLog[i]!.playerId === id) return describeAction(actionLog[i]!); return undefined; };
   const publicPlayers = new Map((view.hand?.players ?? []).map((player) => [player.id, player]));
   opponentIds.forEach((player, index) => {
     const publicPlayer = publicPlayers.get(player.id)!;
@@ -130,6 +155,7 @@ export function renderPlayView(app: HTMLElement): void {
       active: player.id === actorId && hand.stage !== 'complete', dealer: table.buttonPlayerId === player.id,
       away: isOnline && peer !== undefined && !peer.connected,
       holeCards: publicPlayer.holeCards, showCards: Boolean(publicPlayer.holeCards), winner: winners.has(player.id) && hand.stage === 'complete',
+      lastAction: lastActionOf(player.id),
     }));
     seats.append(wrapper);
   });
@@ -142,7 +168,7 @@ export function renderPlayView(app: HTMLElement): void {
     bet: heroPublic?.streetContribution ?? 0, folded: heroPublic?.folded ?? false,
     allIn: Boolean(heroPublic && !heroPublic.folded && heroPublic.stack === 0 && hand.stage !== 'complete'),
     active: humanTurn, dealer: table.buttonPlayerId === store.humanId, holeCards: null, showCards: false,
-    winner: winners.has(store.humanId) && hand.stage === 'complete',
+    winner: winners.has(store.humanId) && hand.stage === 'complete', lastAction: lastActionOf(store.humanId),
   }));
   seats.append(heroSlot);
   felt.append(seats);
@@ -175,6 +201,13 @@ export function renderPlayView(app: HTMLElement): void {
   felt.append(center);
   feltWrap.append(felt);
   stage.append(feltWrap);
+
+  const latest = actionLog[actionLog.length - 1];
+  const recent = node('p', 'last-action');
+  recent.setAttribute('aria-live', 'polite');
+  if (latest) recent.append(node('strong', '', `${playerLabel(latest.playerId)}${latest.playerId === store.humanId ? '' : ''}`), document.createTextNode(` が ${describeAction(latest)}`));
+  else recent.textContent = hand.stage === 'complete' ? '' : 'ブラインドを払ってハンドが始まりました。';
+  stage.append(recent);
 
   const noticeBar = node('div', `notice${online.error ? ' is-error' : ''}`);
   noticeBar.setAttribute('role', 'status');
@@ -244,6 +277,7 @@ function renderDock(args: DockArgs): HTMLElement {
     if (hand.stage === 'complete' && online.finished) watch.append(node('p', 'dock-waiting', '対戦が終了しました。プレイヤーの再戦をお待ちください。'));
     return watch;
   }
+  if (!humanTurn) store.allInArmed = false;
   const dock = node('section', `dock${humanTurn ? ' is-your-turn' : ''}${store.raiseOpen && legal?.canRaise ? ' raise-open' : ''}`);
   dock.setAttribute('aria-label', 'あなたの手札と操作');
 
@@ -254,7 +288,7 @@ function renderDock(args: DockArgs): HTMLElement {
   else hero.append(emptyCardSlot('lg'), emptyCardSlot('lg'));
   const heroMeta = node('div', 'hero-meta');
   heroMeta.append(node('strong', 'hero-name', store.playerName), node('span', 'hero-stack', me ? `残り ${formatChips(me.stack)} チップ` : '次のハンドから参加します'));
-  if (me && hand.board.length >= 3 && hand.stage !== 'complete' && !me.folded) {
+  if (me && rankVisible() && hand.board.length >= 3 && hand.stage !== 'complete' && !me.folded) {
     const explanation = explainHand(evaluateHand([...me.holeCards, ...hand.board]));
     const made = node('span', 'hero-made');
     made.append(node('span', 'hero-made-label', '現在の役'), node('strong', '', explanation.name));
@@ -327,17 +361,39 @@ function renderActionControls(legal: LegalActions, currentBet: number, myStack: 
     raise.setAttribute('aria-expanded', String(store.raiseOpen));
     row.append(raise);
   }
+  let allInButton: HTMLButtonElement | null = null;
   const canAllIn = myStack > 0 && (legal.canRaise || myStack <= legal.callAmount);
   if (canAllIn) {
-    const allIn = createActionButton('オールイン', { type: 'all-in' }, 'allin', disabled, performAction, formatChips(myStack));
+    // All-in is a separate, two-step control: a stray tap or the A key only arms it.
+    const allIn = createActionButton('オールイン', { type: 'all-in' }, 'allin', disabled, () => { store.allInArmed = true; store.raiseOpen = false; hooks.render(); }, formatChips(myStack));
     allIn.dataset.shortcut = 'a';
     allIn.setAttribute('aria-keyshortcuts', 'A');
-    row.append(allIn);
+    allIn.classList.add('allin-button');
+    allInButton = allIn;
   }
   out.push(row);
+  if (allInButton && store.allInArmed) out.push(renderAllInConfirm(myStack, pending));
+  else if (allInButton) { const wrap = node('div', 'allin-row'); wrap.append(allInButton); out.push(wrap); }
 
   if (legal.canRaise && store.raiseOpen) out.push(renderRaiseSheet(legal, currentBet, pot, raiseLabel, pending));
   return out;
+}
+
+function renderAllInConfirm(stack: number, pending: boolean): HTMLElement {
+  const box = node('div', 'allin-confirm');
+  box.setAttribute('role', 'alertdialog');
+  box.setAttribute('aria-label', 'オールインの確認');
+  box.append(node('p', 'allin-confirm-text', `残りの ${formatChips(stack)} チップをすべて賭けます。よろしいですか？`));
+  const go = node('button', 'button button-primary', `オールインする`);
+  go.type = 'button'; go.disabled = pending;
+  go.addEventListener('click', () => performAction({ type: 'all-in' }));
+  const cancel = node('button', 'button button-secondary', 'やめる');
+  cancel.type = 'button';
+  cancel.addEventListener('click', () => { store.allInArmed = false; hooks.render(); });
+  const buttons = node('div', 'allin-confirm-actions');
+  buttons.append(cancel, go);
+  box.append(buttons);
+  return box;
 }
 
 function renderRaiseSheet(legal: LegalActions, currentBet: number, pot: number, raiseLabel: string, pending: boolean): HTMLElement {
@@ -368,6 +424,8 @@ function renderRaiseSheet(legal: LegalActions, currentBet: number, pot: number, 
   range.addEventListener('input', update);
   confirm.addEventListener('click', () => {
     const target = Number(range.value);
+    // Raising by the entire stack is an all-in too, so it goes through the same confirmation.
+    if (target >= legal.maxRaiseTo) { store.allInArmed = true; store.raiseOpen = false; hooks.render(); return; }
     const action: BettingAction = target === legal.maxRaiseTo && target < legal.minRaiseTo ? { type: 'all-in' } : { type: currentBet === 0 ? 'bet' : 'raise', to: target };
     performAction(action);
   });
@@ -398,7 +456,9 @@ function renderInfo(args: InfoArgs): HTMLElement {
   const info = node('div', 'play-info');
   const me = hand.players.find((player) => player.id === store.humanId);
 
-  if (me && hand.board.length >= 3 && hand.stage !== 'complete') {
+  if (!rankVisible()) {
+    info.append(node('p', 'info-card lesson-placeholder', 'このルームでは、ホストの設定により現在の役は表示されません。'));
+  } else if (me && hand.board.length >= 3 && hand.stage !== 'complete') {
     const explanation = explainHand(evaluateHand([...me.holeCards, ...hand.board]));
     const lesson = node('section', 'info-card lesson');
     lesson.append(node('span', 'eyebrow', 'YOUR HAND'), node('strong', 'lesson-title', explanation.name), node('p', '', explanation.reason));
@@ -408,6 +468,22 @@ function renderInfo(args: InfoArgs): HTMLElement {
     info.append(lesson);
   } else if (hand.stage !== 'complete') {
     info.append(node('p', 'info-card lesson-placeholder', 'フロップが公開されると、現在成立している役と構成カードをここに表示します。'));
+  }
+
+  const log = hand.actionLog ?? [];
+  if (log.length) {
+    const card = node('section', 'info-card action-log');
+    card.append(node('span', 'eyebrow', 'ACTION LOG'));
+    const list = node('ol', 'action-log-list');
+    let lastStage = '';
+    for (const record of [...log].reverse().slice(0, 14)) {
+      const item = node('li', record.playerId === store.humanId ? 'is-you' : '');
+      if (record.stage !== lastStage) { item.append(node('span', 'log-stage', stageLabel(record.stage))); lastStage = record.stage; }
+      item.append(node('strong', '', playerLabel(record.playerId)), document.createTextNode(` ${describeAction(record)}`));
+      list.append(item);
+    }
+    card.append(list);
+    info.append(card);
   }
 
   if (args.legal) {
