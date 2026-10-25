@@ -1,0 +1,125 @@
+diff -ruN a/docs/UPDATE_NOTES.md b/docs/UPDATE_NOTES.md
+--- a/docs/UPDATE_NOTES.md	2026-10-25 14:27:14.301489367 +0000
++++ b/docs/UPDATE_NOTES.md	2026-10-25 14:27:14.304233754 +0000
+@@ -145,3 +145,10 @@
+ ## 公開前に運営者が確認すること（更新）
+ 
+ 運営者名と問い合わせ先は反映済みです。残りは、管轄裁判所、ログ・匿名ID・レート制限の保存期間、データ保存リージョンです（ページ内で黄色の線付きの空欄として表示されます）。
++
++
++## 追記（第3回）
++
++- ルームコード参加：入力の正規化（大小文字・空白・ハイフン・全角）、読み間違えやすい文字の案内、参加後の画面遷移を招待リンク参加と同じ処理に統一。
++- 利用規約・プライバシーポリシーから、運営者が記入する空欄（管轄裁判所、保存期間、保存リージョン）の行を削除。確認できない保存期間などは記載していません。
++- 法務ページの目次の番号重複（「1. 1. …」）を修正。
+diff -ruN a/src/app/online.ts b/src/app/online.ts
+--- a/src/app/online.ts	2026-10-25 14:27:14.301849655 +0000
++++ b/src/app/online.ts	2026-10-25 14:27:14.304565617 +0000
+@@ -227,9 +227,15 @@
+   }
+ }
+ 
++/** Accepts what people actually type or paste: any case, spaces, hyphens, full-width letters, or "コード: ABC123". */
++export function normalizeRoomCode(raw: string): string {
++  return raw.normalize('NFKC').toUpperCase().replace(/[^A-Z0-9]/gu, '');
++}
++
+ export function joinOnlineRoomByCode(raw: string): void {
+-  const code = raw.trim().toUpperCase();
+-  if (!/^[A-Z2-9]{6}$/u.test(code)) { online.error = 'ルームコードは6文字の英数字です。'; hooks.render(); return; }
++  const code = normalizeRoomCode(raw);
++  if (code.length !== 6) { online.error = 'ルームコードは6文字です。ホストの画面に表示されているコードを入力してください。'; hooks.render(); return; }
++  if (/[01OIL]/u.test(code)) { online.error = 'ルームコードには 0・1・O・I・L の文字は使われません。読み間違いがないか確認してください。'; hooks.render(); return; }
+   const epoch = online.sessionEpoch;
+   if (online.pending) return;
+   online.pending = true; online.error = ''; hooks.render();
+@@ -240,7 +246,8 @@
+       if (epoch !== online.sessionEpoch) return;
+       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#room=${room.roomId}`);
+       online.invite = '';
+-      applyOnlineRoom(room, room.roomId);
++      store.mode = room.status === 'playing' ? 'online-playing' : 'online-lobby';
++      applyOnlineRoom(room);
+       startOnlinePolling();
+     } catch (error) {
+       online.error = error instanceof Error ? error.message : 'ルームに参加できませんでした。';
+diff -ruN a/src/style.css b/src/style.css
+--- a/src/style.css	2026-10-25 14:27:14.301894735 +0000
++++ b/src/style.css	2026-10-25 14:27:14.304605649 +0000
+@@ -738,3 +738,6 @@
+ @media (forced-colors: active) {
+   .button, .action-button, .seat, .playing-card { border: 1px solid CanvasText; }
+ }
++
++/* Legal tables of contents: titles already carry their own numbers (第1条 / 1.), so no automatic list numbers. */
++.legal-toc-list.is-plain { list-style: none; padding-left: 0; }
+diff -ruN a/src/ui/legal.ts b/src/ui/legal.ts
+--- a/src/ui/legal.ts	2026-10-25 14:27:14.302303022 +0000
++++ b/src/ui/legal.ts	2026-10-25 14:27:14.304887988 +0000
+@@ -4,10 +4,9 @@
+ /**
+  * Draft legal documents. Every statement about data handling is derived from what the code and Supabase
+  * schema in this repository actually do. Items that cannot be known from the code are rendered as an
+- * explicit blank (`PENDING`) instead of being invented; see docs/LEGAL_REVIEW.md for the pre-launch checklist.
++ * left out rather than invented.
+  */
+ export const LEGAL_UPDATED = '2026年10月23日';
+-const PENDING = '【公開前に運営者が記入：確認できていません】';
+ 
+ type Section = Readonly<{ id: string; title: string; body: readonly string[] }>;
+ type LegalDoc = Readonly<{ eyebrow: string; title: string; lead: string; sections: readonly Section[] }>;
+@@ -58,7 +57,6 @@
+     ] },
+     { id: 'law', title: '第9条（準拠法・紛争の解決）', body: [
+       '本規約の解釈には、日本法を準拠法とします。',
+-      `本サービスに関して紛争が生じた場合の管轄裁判所：${PENDING}`,
+     ] },
+     { id: 'contact', title: '第10条（運営者・お問い合わせ）', body: [
+       '運営者名：Root（astro-root）',
+@@ -92,13 +90,11 @@
+     ] },
+     { id: 'storage', title: '4. 保存する情報と保存期間', body: [
+       'ルームの状態：終了したルームは、最後の更新から約1時間、未終了のルームは約24時間を過ぎると削除の対象になります。削除処理は、ルームの作成などの操作をきっかけに実行されるため、実際の削除時刻は前後することがあります。',
+-      `匿名ゲストID（認証情報）、利用頻度の制限の記録、各サービスのログの保存期間：${PENDING}`,
+       '利用者のブラウザ内には、次の情報が保存されます（運営者のサーバーには送信されません）：ログイン状態（Supabaseのセッション）、表示名、AI対戦の設定、AI対戦の直近のハンド履歴（最大10件）。ブラウザの設定から削除できます。',
+     ] },
+     { id: 'vendors', title: '5. 外部サービスによる処理', body: [
+       'Supabase：匿名認証、データベース、オンライン対戦の処理（Edge Functions）に使用します。上記の情報がSupabaseのサーバーで処理・保存されます。',
+       'Vercel：本サービスのウェブサイトの配信に使用します。一般的な配信の仕組みとして、アクセス元のIPアドレス、ブラウザ・端末の情報、アクセス日時などがログとして処理される場合があります。',
+-      `これらのサービスの利用地域・設定（データ保存リージョンなど）：${PENDING}`,
+       '本サービスのフォントは、サービス自身から配信されており、外部のフォント配信サービスを利用していません。',
+     ] },
+     { id: 'cookies', title: '6. Cookie・ローカルストレージ・アクセス解析', body: [
+@@ -139,7 +135,7 @@
+ 
+ /** Plain text with any https:// address turned into a safe external link (built with DOM nodes, never innerHTML). */
+ function paragraphNode(text: string): HTMLElement {
+-  const p = node('p', text.includes(PENDING) ? 'legal-pending' : '');
++  const p = node('p', '');
+   for (const part of text.split(/(https:\/\/[^\s）)]+)/u)) {
+     if (/^https:\/\//u.test(part)) {
+       const link = node('a', 'legal-link', part) as HTMLAnchorElement;
+@@ -164,7 +160,7 @@
+   const toc = node('nav', 'legal-toc');
+   toc.setAttribute('aria-label', '目次');
+   toc.append(node('h2', 'legal-toc-title', '目次'));
+-  const list = node('ol', 'legal-toc-list');
++  const list = node('ol', 'legal-toc-list is-plain');
+   for (const section of doc.sections) {
+     const item = node('li');
+     const link = node('a', '', section.title) as HTMLAnchorElement;
+diff -ruN a/src/views/lobby-view.ts b/src/views/lobby-view.ts
+--- a/src/views/lobby-view.ts	2026-10-25 14:27:14.302338344 +0000
++++ b/src/views/lobby-view.ts	2026-10-25 14:27:14.304916787 +0000
+@@ -136,8 +136,9 @@
+     join.addEventListener('click', () => {
+       savePlayerName(nameInput.value);
+       const value = roomInput.value.trim();
+-      const link = value.match(/(?:#room=)?([a-f0-9]{36})$/u);
+-      if (link?.[1]) void joinOnlineRoom(link[1]);
++      if (!value) { online.error = '招待リンクまたはルームコードを入力してください。'; hooks.renderLobby(); return; }
++      const link = value.match(/([a-f0-9]{36})\s*$/iu);
++      if (link?.[1]) void joinOnlineRoom(link[1].toLowerCase());
+       else joinOnlineRoomByCode(value);
+     });
+     roomInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') join.click(); });
