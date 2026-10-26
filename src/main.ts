@@ -34,6 +34,9 @@ function keepingScroll(draw: () => void): void {
   draw();
   for (const [key, top] of inner) { const el = root.querySelector<HTMLElement>(`[data-scroll-key="${key}"]`); if (el) el.scrollTop = top; }
   if (Math.abs(window.scrollY - y) > 1) window.scrollTo({ top: y, behavior: 'instant' });
+  // The chat button floats above the pinned action dock on phones; tell the CSS how tall the dock is.
+  const dock = root.querySelector<HTMLElement>('.dock');
+  document.documentElement.style.setProperty('--dock-h', dock && window.matchMedia('(max-width: 819.98px)').matches ? `${dock.offsetHeight}px` : '0px');
   if (active) document.getElementById(active)?.focus({ preventScroll: true });
   updateChatWidget();
 }

@@ -16,6 +16,7 @@ import { backToSetup, continueToNextHand, performAction } from '../app/practice.
 import { closeOnlineSession, renameSelf, requestNextOnlineHand, requestRematch } from '../app/online.ts';
 import type { HandActionRecord } from '../poker/hand.ts';
 import { openHostSettings } from './lobby-view.ts';
+import { iconButton, iconLink } from '../ui/icons.ts';
 
 const online = store.online;
 
@@ -91,34 +92,27 @@ export function renderPlayView(app: HTMLElement): void {
   statusBar.append(meta, turn);
   const controls = node('div', 'status-controls');
   if (isOnline) {
-    const info = node('a', 'button button-ghost button-small', 'ルーム情報') as HTMLAnchorElement;
-    info.href = `/online#room=${online.roomId}`;
-    const leave = node('button', 'button button-danger-ghost button-small', '退出');
-    leave.type = 'button';
+    const info = iconLink('info', 'ルーム情報', `/online#room=${online.roomId}`);
+    const leave = iconButton('leave', '退出', 'button-danger-ghost');
     leave.title = online.role === 'spectator' ? '観戦をやめます' : '退出するとこのハンドはフォールドになり、席は離席扱いになります';
     leave.addEventListener('click', () => {
       if (online.role !== 'spectator' && !window.confirm('退出するとこのハンドはフォールドになり、離席扱いになります。退出しますか？')) return;
       void closeOnlineSession().finally(() => { window.location.assign('/online'); });
     });
-    const rename = node('button', 'button button-ghost button-small', '名前変更');
-    rename.type = 'button';
-    rename.addEventListener('click', () => {
-      const next = window.prompt('新しい表示名（20文字以内）', store.playerName);
-      if (next !== null) renameSelf(next);
-    });
-    controls.append(info, rename);
+    controls.append(info, renameButton());
     if (online.host) {
-      const settings = node('button', 'button button-ghost button-small', '設定');
-      settings.type = 'button';
+      const settings = iconButton('settings', 'ルーム設定');
       settings.addEventListener('click', openHostSettings);
       controls.append(settings);
     }
     controls.append(leave);
   } else {
-    const setup = node('button', 'button button-ghost button-small', '設定を変更');
-    setup.type = 'button';
-    setup.addEventListener('click', backToSetup);
-    controls.append(setup);
+    // Changing the name in place keeps the game running; "設定を変更" goes back to setup and starts a NEW game.
+    const setup = iconButton('settings', '設定を変更（新しいゲーム）');
+    setup.addEventListener('click', () => {
+      if (window.confirm('設定を変更すると、現在のゲームは終了して新しいゲームになります。よろしいですか？')) backToSetup();
+    });
+    controls.append(renameButton(), setup);
   }
   statusBar.append(controls);
   stage.append(statusBar);
@@ -264,6 +258,16 @@ function renderResult(): HTMLElement {
 
 type DockArgs = Readonly<{ legal: LegalActions | null; humanTurn: boolean; pot: number; round: BettingRound | null }>;
 
+/** Renames the player without touching the game: online it goes through the server, offline it only changes the label. */
+function renameButton(): HTMLButtonElement {
+  const rename = iconButton('rename', '名前を変更');
+  rename.addEventListener('click', () => {
+    const next = window.prompt('新しい表示名（20文字以内）', store.playerName);
+    if (next !== null) renameSelf(next);
+  });
+  return rename;
+}
+
 function renderDock(args: DockArgs): HTMLElement {
   const table = store.table!;
   const hand = table.hand!;
@@ -320,11 +324,30 @@ function renderDock(args: DockArgs): HTMLElement {
   } else if (legal && round && me) {
     actions.append(...renderActionControls(legal, round.currentBet, me.stack, pot, pending));
   } else {
-    const waiting = node('p', 'dock-waiting', me?.folded ? 'このハンドは終了しました。次のハンドをお待ちください。' : '順番が来ると、ここに操作ボタンが表示されます。');
-    actions.append(waiting);
+    // The panel never disappears: out of turn the same controls stay in place, greyed out and not pressable.
+    const who = round?.actorId ? `${playerLabel(round.actorId)}の番です` : '';
+    const note = me?.folded ? 'このハンドは終了しました。次のハンドをお待ちください。' : who || 'ほかのプレイヤーの手番です。';
+    actions.append(...renderIdleControls(pot, note));
   }
   dock.append(actions);
   return dock;
+}
+
+function renderIdleControls(pot: number, note: string): HTMLElement[] {
+  const stats = node('div', 'dock-stats');
+  stats.append(chip('ポット', formatChips(pot)), chip('コール額', '—'));
+  const row = node('div', 'action-row is-idle');
+  for (const [label, tone] of [['フォールド', 'fold'], ['チェック', 'neutral'], ['レイズ', 'raise'], ['オールイン', 'allin']] as const) {
+    const button = node('button', `action-button tone-${tone}`);
+    button.type = 'button';
+    button.disabled = true;
+    button.setAttribute('aria-disabled', 'true');
+    button.append(node('span', 'action-label', label));
+    row.append(button);
+  }
+  const status = node('p', 'dock-waiting', note);
+  status.setAttribute('role', 'status');
+  return [stats, row, status];
 }
 
 function renderActionControls(legal: LegalActions, currentBet: number, myStack: number, pot: number, pending: boolean): HTMLElement[] {
