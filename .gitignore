@@ -6,9 +6,6 @@ supabase/.temp/
 .env.*
 !.env.example
 npm-debug.log*
-# Design captures are large; only docs/design/screenshots/*.webp and ISSUES.md are committed.
-docs/design/before/
-docs/design/after/
 test-results/
 playwright-report/
 

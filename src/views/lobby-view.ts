@@ -136,8 +136,9 @@ export function renderOnlineLobby(app: HTMLElement): void {
     join.addEventListener('click', () => {
       savePlayerName(nameInput.value);
       const value = roomInput.value.trim();
-      const link = value.match(/(?:#room=)?([a-f0-9]{36})$/u);
-      if (link?.[1]) void joinOnlineRoom(link[1]);
+      if (!value) { online.error = '招待リンクまたはルームコードを入力してください。'; hooks.renderLobby(); return; }
+      const link = value.match(/([a-f0-9]{36})\s*$/iu);
+      if (link?.[1]) void joinOnlineRoom(link[1].toLowerCase());
       else joinOnlineRoomByCode(value);
     });
     roomInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') join.click(); });
