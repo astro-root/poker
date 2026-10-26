@@ -4,10 +4,9 @@ import { SITE_NAME, siteFooter, siteHeader, type SitePage } from './header.ts';
 /**
  * Draft legal documents. Every statement about data handling is derived from what the code and Supabase
  * schema in this repository actually do. Items that cannot be known from the code are rendered as an
- * explicit blank (`PENDING`) instead of being invented; see docs/LEGAL_REVIEW.md for the pre-launch checklist.
+ * left out rather than invented.
  */
 export const LEGAL_UPDATED = '2026年10月23日';
-const PENDING = '【公開前に運営者が記入：確認できていません】';
 
 type Section = Readonly<{ id: string; title: string; body: readonly string[] }>;
 type LegalDoc = Readonly<{ eyebrow: string; title: string; lead: string; sections: readonly Section[] }>;
@@ -58,7 +57,6 @@ const TERMS: LegalDoc = {
     ] },
     { id: 'law', title: '第9条（準拠法・紛争の解決）', body: [
       '本規約の解釈には、日本法を準拠法とします。',
-      `本サービスに関して紛争が生じた場合の管轄裁判所：${PENDING}`,
     ] },
     { id: 'contact', title: '第10条（運営者・お問い合わせ）', body: [
       '運営者名：Root（astro-root）',
@@ -92,13 +90,11 @@ const PRIVACY: LegalDoc = {
     ] },
     { id: 'storage', title: '4. 保存する情報と保存期間', body: [
       'ルームの状態：終了したルームは、最後の更新から約1時間、未終了のルームは約24時間を過ぎると削除の対象になります。削除処理は、ルームの作成などの操作をきっかけに実行されるため、実際の削除時刻は前後することがあります。',
-      `匿名ゲストID（認証情報）、利用頻度の制限の記録、各サービスのログの保存期間：${PENDING}`,
       '利用者のブラウザ内には、次の情報が保存されます（運営者のサーバーには送信されません）：ログイン状態（Supabaseのセッション）、表示名、AI対戦の設定、AI対戦の直近のハンド履歴（最大10件）。ブラウザの設定から削除できます。',
     ] },
     { id: 'vendors', title: '5. 外部サービスによる処理', body: [
       'Supabase：匿名認証、データベース、オンライン対戦の処理（Edge Functions）に使用します。上記の情報がSupabaseのサーバーで処理・保存されます。',
       'Vercel：本サービスのウェブサイトの配信に使用します。一般的な配信の仕組みとして、アクセス元のIPアドレス、ブラウザ・端末の情報、アクセス日時などがログとして処理される場合があります。',
-      `これらのサービスの利用地域・設定（データ保存リージョンなど）：${PENDING}`,
       '本サービスのフォントは、サービス自身から配信されており、外部のフォント配信サービスを利用していません。',
     ] },
     { id: 'cookies', title: '6. Cookie・ローカルストレージ・アクセス解析', body: [
@@ -139,7 +135,7 @@ const PRIVACY: LegalDoc = {
 
 /** Plain text with any https:// address turned into a safe external link (built with DOM nodes, never innerHTML). */
 function paragraphNode(text: string): HTMLElement {
-  const p = node('p', text.includes(PENDING) ? 'legal-pending' : '');
+  const p = node('p', '');
   for (const part of text.split(/(https:\/\/[^\s）)]+)/u)) {
     if (/^https:\/\//u.test(part)) {
       const link = node('a', 'legal-link', part) as HTMLAnchorElement;
@@ -164,7 +160,7 @@ export function renderLegalPage(app: HTMLElement, page: Extract<SitePage, 'terms
   const toc = node('nav', 'legal-toc');
   toc.setAttribute('aria-label', '目次');
   toc.append(node('h2', 'legal-toc-title', '目次'));
-  const list = node('ol', 'legal-toc-list');
+  const list = node('ol', 'legal-toc-list is-plain');
   for (const section of doc.sections) {
     const item = node('li');
     const link = node('a', '', section.title) as HTMLAnchorElement;

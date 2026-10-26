@@ -227,9 +227,15 @@ export async function saveRoomSettings(draft: RoomSettings): Promise<string | nu
   }
 }
 
+/** Accepts what people actually type or paste: any case, spaces, hyphens, full-width letters, or "コード: ABC123". */
+export function normalizeRoomCode(raw: string): string {
+  return raw.normalize('NFKC').toUpperCase().replace(/[^A-Z0-9]/gu, '');
+}
+
 export function joinOnlineRoomByCode(raw: string): void {
-  const code = raw.trim().toUpperCase();
-  if (!/^[A-Z2-9]{6}$/u.test(code)) { online.error = 'ルームコードは6文字の英数字です。'; hooks.render(); return; }
+  const code = normalizeRoomCode(raw);
+  if (code.length !== 6) { online.error = 'ルームコードは6文字です。ホストの画面に表示されているコードを入力してください。'; hooks.render(); return; }
+  if (/[01OIL]/u.test(code)) { online.error = 'ルームコードには 0・1・O・I・L の文字は使われません。読み間違いがないか確認してください。'; hooks.render(); return; }
   const epoch = online.sessionEpoch;
   if (online.pending) return;
   online.pending = true; online.error = ''; hooks.render();
@@ -240,7 +246,8 @@ export function joinOnlineRoomByCode(raw: string): void {
       if (epoch !== online.sessionEpoch) return;
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#room=${room.roomId}`);
       online.invite = '';
-      applyOnlineRoom(room, room.roomId);
+      store.mode = room.status === 'playing' ? 'online-playing' : 'online-lobby';
+      applyOnlineRoom(room);
       startOnlinePolling();
     } catch (error) {
       online.error = error instanceof Error ? error.message : 'ルームに参加できませんでした。';

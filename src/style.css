@@ -738,3 +738,6 @@ a.mode-row:hover { transform: translateY(-3px); border-color: var(--gold); box-s
 @media (forced-colors: active) {
   .button, .action-button, .seat, .playing-card { border: 1px solid CanvasText; }
 }
+
+/* Legal tables of contents: titles already carry their own numbers (第1条 / 1.), so no automatic list numbers. */
+.legal-toc-list.is-plain { list-style: none; padding-left: 0; }

@@ -41,7 +41,7 @@ Node.js は `package.json` の `engines` を参照（22.12 以降）。
 
 `npm run test:e2e` は開発サーバーを自動起動し、全ページの表示、横スクロールなし、手札の可視性（A-1）、AI卓での操作、`@axe-core/playwright` による `color-contrast` 検査を行います。オンライン画面は、開発サーバー限定のフィクスチャ `/online?mock=lobby|lobby-joined|playing|finished` で再現します（本番ビルドには含まれません）。
 
-代表的な画面は `docs/design/screenshots/` にあります。デザインの経緯と対応状況は [`docs/design/ISSUES.md`](docs/design/ISSUES.md)、設計判断は [`docs/DECISIONS.md`](docs/DECISIONS.md) を参照してください。
+設計判断は [`docs/DECISIONS.md`](docs/DECISIONS.md) を参照してください。
 
 ## 構成
 
