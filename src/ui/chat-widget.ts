@@ -2,6 +2,7 @@ import { node } from './dom.ts';
 import { hooks, store } from '../app/state.ts';
 import { markChatSeen, sendChat } from '../app/online.ts';
 import { CHAT_EMOJI } from '../supabase/online-room.ts';
+import { icon } from './icons.ts';
 
 /**
  * Room chat and quick emoji reactions. It lives on document.body, outside the re-rendered app root, so the
@@ -17,11 +18,16 @@ let toasts: HTMLElement;
 let input: HTMLInputElement;
 let renderedUpTo = 0;
 let toastedUpTo = -1;
+let renderedNamesKey = '';
+
+/** Names come from the live room roster, so a rename shows up on messages sent before it too. */
+const nameOf = (message: { from: string; name: string }): string => (message.from === store.humanId ? 'あなた' : online.names.get(message.from) ?? message.name);
 
 function build(): HTMLElement {
   const wrap = node('div', 'chat-widget');
-  toggle = node('button', 'chat-toggle', '💬');
+  toggle = node('button', 'chat-toggle');
   toggle.type = 'button';
+  toggle.append(icon('chat', 22));
   toggle.setAttribute('aria-label', 'チャットを開く');
   toggle.setAttribute('aria-expanded', 'false');
   badge = node('span', 'chat-badge');
@@ -80,16 +86,18 @@ function build(): HTMLElement {
 /** Re-syncs the widget with the online store. Cheap and idempotent; called after every room update. */
 export function updateChatWidget(): void {
   const visible = Boolean(online.roomId) && (store.mode === 'online-lobby' || store.mode === 'online-playing');
-  if (!visible) { root?.remove(); root = null; renderedUpTo = 0; toastedUpTo = -1; return; }
+  if (!visible) { root?.remove(); root = null; renderedUpTo = 0; toastedUpTo = -1; renderedNamesKey = ''; return; }
   if (!root) { root = build(); document.body.append(root); }
   const messages = online.chat;
   const last = messages.at(-1)?.id ?? 0;
   if (toastedUpTo < 0) toastedUpTo = last; // do not pop up history when first joining
-  if (last !== renderedUpTo || list.childElementCount !== messages.length) {
+  const namesKey = [...online.names].map(([id, name]) => `${id}:${name}`).join('|');
+  if (last !== renderedUpTo || list.childElementCount !== messages.length || namesKey !== renderedNamesKey) {
+    renderedNamesKey = namesKey;
     const stick = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
     list.replaceChildren(...messages.map((message) => {
       const item = node('li', `chat-item${message.from === store.humanId ? ' is-me' : ''}${message.kind === 'emoji' ? ' is-emoji' : ''}`);
-      const who = node('span', 'chat-name', message.from === store.humanId ? 'あなた' : message.name);
+      const who = node('span', 'chat-name', nameOf(message));
       item.append(who, node('span', 'chat-text', message.text)); // textContent only: never HTML
       return item;
     }));
@@ -102,7 +110,7 @@ export function updateChatWidget(): void {
     toastedUpTo = Math.max(toastedUpTo, message.id);
     if (message.from === store.humanId || online.chatOpen) continue;
     const toast = node('div', `chat-toast${message.kind === 'emoji' ? ' is-emoji' : ''}`);
-    toast.append(node('strong', '', message.name), document.createTextNode(` ${message.text}`));
+    toast.append(node('strong', '', nameOf(message)), document.createTextNode(` ${message.text}`));
     toasts.append(toast);
     window.setTimeout(() => toast.remove(), 4_000);
     while (toasts.childElementCount > 3) toasts.firstElementChild?.remove();

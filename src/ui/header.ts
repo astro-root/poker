@@ -52,7 +52,22 @@ export function brandLink(): HTMLAnchorElement {
 /** Remembered across the full re-renders that the game views perform, so an open menu does not snap shut. */
 let menuOpen = false;
 
+let outsideListenerInstalled = false;
+function installOutsideClose(): void {
+  if (outsideListenerInstalled) return;
+  outsideListenerInstalled = true;
+  document.addEventListener('pointerdown', (event) => {
+    if (!menuOpen) return;
+    const header = document.querySelector<HTMLElement>('.site-header');
+    if (header && event.target instanceof Node && header.contains(event.target)) return;
+    menuOpen = false;
+    header?.classList.remove('is-menu-open');
+    header?.querySelector('.nav-toggle')?.setAttribute('aria-expanded', 'false');
+  });
+}
+
 export function siteHeader(page: SitePage): HTMLElement {
+  installOutsideClose();
   const header = node('header', 'site-header');
   const inner = node('div', 'site-header-inner');
   const nav = node('nav', 'page-nav');

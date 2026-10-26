@@ -82,8 +82,10 @@ export function renderOnlineLobby(app: HTMLElement): void {
   const nameRow = node('div', 'inline-row');
   const nameInput = node('input', 'text-input');
   nameInput.type = 'text';
-  nameInput.value = store.playerName;
+  nameInput.id = 'player-name-input';
+  nameInput.value = online.nameDraft || store.playerName;
   nameInput.maxLength = 40;
+  nameInput.addEventListener('input', () => { online.nameDraft = nameInput.value; });
   nameInput.setAttribute('autocomplete', 'nickname');
   nameInput.addEventListener('change', () => {
     if (online.roomId) return;
@@ -94,7 +96,7 @@ export function renderOnlineLobby(app: HTMLElement): void {
   if (online.roomId) {
     const rename = node('button', 'button button-secondary', '変更');
     rename.type = 'button';
-    rename.addEventListener('click', () => renameSelf(nameInput.value));
+    rename.addEventListener('click', () => { const value = nameInput.value; online.nameDraft = ''; renameSelf(value); });
     nameRow.append(rename);
   }
   nameField.append(nameRow);
@@ -127,6 +129,9 @@ export function renderOnlineLobby(app: HTMLElement): void {
     panel.append(create, quick, node('div', 'divider', '招待リンクまたはルームコードで参加'));
     const joinRow = node('div', 'inline-row');
     const roomInput = node('input', 'text-input');
+    roomInput.id = 'room-join-input';
+    roomInput.value = online.joinDraft;
+    roomInput.addEventListener('input', () => { online.joinDraft = roomInput.value; });
     roomInput.placeholder = '招待リンク / ルームコード（例: K7M2QX）';
     roomInput.setAttribute('aria-label', '招待リンクまたはルームコード');
     roomInput.autocapitalize = 'characters';

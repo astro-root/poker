@@ -111,6 +111,9 @@ export const store = {
     settings: DEFAULT_SETTINGS as RoomSettings,
     settingsVersion: 0,
     code: '' as string,
+    /** Text typed in the lobby inputs but not yet submitted; survives the re-renders caused by polling. */
+    nameDraft: '',
+    joinDraft: '',
     chat: [] as ChatMessage[],
     /** Highest chat id the player has seen; anything newer is shown as unread. */
     chatSeen: 0,
